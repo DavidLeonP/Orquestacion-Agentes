@@ -9,12 +9,11 @@ import json
 import re
 from pathlib import Path
 
-from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
-from src.config import DIR_CHROMA, DIR_STORAGE, EMBEDDING_MODEL, INDICES
+from src.config import DIR_STORAGE, INDICES
+from src.rag.chroma_client import obtener_coleccion
 
 DIR_CHUNKS = DIR_STORAGE / "chunks"
 
@@ -43,7 +42,6 @@ def _extraer_metadatos(texto: str, ruta: Path) -> tuple[dict, str]:
 def ingestar(persistir: bool = True) -> dict[str, list[dict]]:
     """Procesa todos los índices y devuelve los chunks por índice."""
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL) if persistir else None
     resultado: dict[str, list[dict]] = {}
 
     for nombre_indice, carpeta in INDICES.items():
@@ -61,11 +59,7 @@ def ingestar(persistir: bool = True) -> dict[str, list[dict]]:
         resultado[nombre_indice] = chunks
 
         if persistir and chunks:
-            coleccion = Chroma(
-                collection_name=nombre_indice,
-                embedding_function=embeddings,
-                persist_directory=str(DIR_CHROMA),
-            )
+            coleccion = obtener_coleccion(nombre_indice)
             coleccion.add_texts(
                 texts=[c["texto"] for c in chunks],
                 metadatas=[c["metadatos"] for c in chunks],

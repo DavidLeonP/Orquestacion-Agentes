@@ -5,6 +5,7 @@ Uso:
   python main.py docente "petición"          Petición como docente
   python main.py alumno "petición" [id]      Petición como alumno
   python main.py demo                        Ejecuta los escenarios de ejemplo
+  python main.py trazas [N]                  Resumen de las últimas N trazas
 """
 
 import sys
@@ -14,33 +15,78 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Consola Windows: evita errores al imprimir caracteres Unicode (Ω, etc.)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from src.observability.trazas import (  # noqa: E402
+    TrazasSolicitud,
+    configurar_observabilidad,
+    config_langgraph,
+    registrar_evento,
+    resumir_trazas,
+)
+
+
+def _invocar_grafo(app, entrada: dict, config: dict) -> dict:
+    """Ejecuta el grafo registrando cada nodo completado."""
+    estado: dict = {}
+    for chunk in app.stream(entrada, config=config, stream_mode="updates"):
+        if "__interrupt__" in chunk:
+            estado["__interrupt__"] = chunk["__interrupt__"]
+            registrar_evento("grafo_interrupcion", motivo="human_in_the_loop")
+        for nodo, actualizacion in chunk.items():
+            if nodo.startswith("__"):
+                continue
+            if not isinstance(actualizacion, dict):
+                continue
+            estado.update(actualizacion)
+            registrar_evento(
+                "nodo_grafo",
+                nodo=nodo,
+                claves=list(actualizacion.keys()),
+            )
+    return estado
+
 
 def _ejecutar(peticion: str, rol: str, alumno_id: str = "anonimo") -> None:
     from langgraph.types import Command
 
     from src.orchestrator.graph import construir_grafo
 
+    configurar_observabilidad()
     app = construir_grafo()
-    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    run_id = str(uuid.uuid4())
+    config = config_langgraph(run_id, rol, peticion, alumno_id)
 
     print(f"\n[{rol}] {peticion}\n{'=' * 70}")
-    estado = app.invoke(
-        {"peticion": peticion, "rol_usuario": rol, "alumno_id": alumno_id},
-        config=config,
-    )
 
-    # Human-in-the-loop: el grafo se interrumpe esperando la aprobación docente.
-    while "__interrupt__" in estado:
-        datos = estado["__interrupt__"][0].value
-        print("\n--- BORRADOR PENDIENTE DE APROBACIÓN ---\n")
-        print(datos["borrador"])
-        print("\n--- VALIDACIÓN CRUZADA (Rubric Agent) ---\n")
-        print(datos["veredicto"])
-        decision = input(f"\n{datos['mensaje']} > ").strip() or "si"
-        estado = app.invoke(Command(resume=decision), config=config)
+    with TrazasSolicitud(run_id, rol, peticion, alumno_id):
+        estado = _invocar_grafo(
+            app,
+            {"peticion": peticion, "rol_usuario": rol, "alumno_id": alumno_id},
+            config,
+        )
+
+        while "__interrupt__" in estado:
+            datos = estado["__interrupt__"][0].value
+            print("\n--- BORRADOR PENDIENTE DE APROBACIÓN ---\n")
+            print(datos["borrador"])
+            print("\n--- VALIDACIÓN CRUZADA (Rubric Agent) ---\n")
+            print(datos["veredicto"])
+            decision = input(f"\n{datos['mensaje']} > ").strip() or "si"
+            estado = _invocar_grafo(app, Command(resume=decision), config)
+
+        registrar_evento(
+            "respuesta_entregada",
+            longitud=len(estado.get("respuesta_final", "")),
+            tiene_fuentes="fuentes consultadas"
+            in estado.get("respuesta_final", "").lower(),
+        )
 
     print("\n--- RESPUESTA FINAL ---\n")
     print(estado["respuesta_final"])
+    print(f"\n[Trazas] storage/logs/{run_id}.jsonl")
 
 
 def demo() -> None:
@@ -73,6 +119,10 @@ def main() -> None:
         _ejecutar(sys.argv[2], "alumno", alumno_id)
     elif comando == "demo":
         demo()
+    elif comando == "trazas":
+        configurar_observabilidad()
+        ultimas = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+        print(resumir_trazas(ultimas))
     else:
         print(__doc__)
         sys.exit(1)

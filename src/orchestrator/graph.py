@@ -23,6 +23,7 @@ from src.agents.schemas import DecisionRouter
 from src.agents.tutor import crear_tutor_agent
 from src.config import LLM_MODEL
 from src.memory import store
+from src.observability.trazas import registrar_evento
 
 MAX_REINTENTOS_VALIDACION = 2
 
@@ -54,15 +55,31 @@ def construir_grafo():
     def router(estado: EstadoOrquestador) -> dict:
         # El alumnado solo interactúa con el Tutor Agent (salvaguarda).
         if estado.get("rol_usuario") == "alumno":
-            return {"agente_destino": "tutor", "intentos_validacion": 0}
+            destino = "tutor"
+            registrar_evento(
+                "router",
+                metodo="regla",
+                agente_destino=destino,
+                motivo="rol_usuario=alumno",
+            )
+            return {"agente_destino": destino, "intentos_validacion": 0}
         decision = llm_router.invoke(
             "Clasifica a qué agente especializado corresponde esta petición de "
             f"un docente:\n\n{estado['peticion']}"
         )
+        registrar_evento(
+            "router",
+            metodo="llm",
+            agente_destino=decision.agente,
+        )
         return {"agente_destino": decision.agente, "intentos_validacion": 0}
 
     def nodo_curriculum(estado: EstadoOrquestador) -> dict:
-        return {"borrador": ejecutar_agente(agentes["curriculum"], estado["peticion"])}
+        return {
+            "borrador": ejecutar_agente(
+                agentes["curriculum"], estado["peticion"], "curriculum"
+            )
+        }
 
     def nodo_exam_generator(estado: EstadoOrquestador) -> dict:
         peticion = estado["peticion"]
@@ -73,15 +90,23 @@ def construir_grafo():
                 "Corrige estos incumplimientos:\n" + estado["veredicto"]
                 + "\n\nBorrador anterior:\n" + estado.get("borrador", "")
             )
-        return {"borrador": ejecutar_agente(agentes["exam_generator"], peticion)}
+        return {
+            "borrador": ejecutar_agente(
+                agentes["exam_generator"], peticion, "exam_generator"
+            )
+        }
 
     def nodo_rubric(estado: EstadoOrquestador) -> dict:
-        return {"borrador": ejecutar_agente(agentes["rubric"], estado["peticion"])}
+        return {
+            "borrador": ejecutar_agente(agentes["rubric"], estado["peticion"], "rubric")
+        }
 
     def nodo_tutor(estado: EstadoOrquestador) -> dict:
         perfil = store.perfil_de_alumno(estado.get("alumno_id", "anonimo"))
         peticion = f"{perfil}\n\nPetición del alumno:\n{estado['peticion']}"
-        return {"borrador": ejecutar_agente(agentes["tutor"], peticion)}
+        return {
+            "borrador": ejecutar_agente(agentes["tutor"], peticion, "tutor"),
+        }
 
     def validar(estado: EstadoOrquestador) -> dict:
         """Validación cruzada: el Rubric Agent revisa el examen generado."""
@@ -89,6 +114,14 @@ def construir_grafo():
             agentes["rubric"],
             "Valida el siguiente examen contra las rúbricas y criterios de "
             "diseño del departamento:\n\n" + estado["borrador"],
+            "rubric_validacion",
+        )
+        aprobado = "VEREDICTO: APROBADO" in veredicto.upper()
+        registrar_evento(
+            "validacion_cruzada",
+            intento=estado.get("intentos_validacion", 0) + 1,
+            aprobado=aprobado,
+            veredicto_resumen=veredicto[:300],
         )
         return {
             "veredicto": veredicto,
@@ -105,6 +138,7 @@ def construir_grafo():
             }
         )
         aprobado = str(decision).strip().lower() in {"si", "sí", "s", "yes", "y"}
+        registrar_evento("aprobacion_docente", decision="aprobado" if aprobado else "rechazado")
         if aprobado:
             # Ciclo de mejora (§4.3): lo aprobado pasa al histórico del centro.
             store.guardar(

@@ -9,11 +9,10 @@ import json
 import re
 from functools import lru_cache
 
-from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 
-from src.config import DIR_CHROMA, DIR_STORAGE, EMBEDDING_MODEL
+from src.config import DIR_STORAGE
+from src.rag.chroma_client import obtener_coleccion
 
 DIR_CHUNKS = DIR_STORAGE / "chunks"
 RRF_K = 60
@@ -33,11 +32,7 @@ class RetrieverHibrido:
             )
         self.chunks: list[dict] = json.loads(ruta.read_text(encoding="utf-8"))
         self.bm25 = BM25Okapi([_tokenizar(c["texto"]) for c in self.chunks])
-        self.chroma = Chroma(
-            collection_name=indice,
-            embedding_function=OpenAIEmbeddings(model=EMBEDDING_MODEL),
-            persist_directory=str(DIR_CHROMA),
-        )
+        self.chroma = obtener_coleccion(indice)
 
     def buscar(self, consulta: str, k: int = 4) -> list[dict]:
         """Devuelve los k mejores chunks según fusión RRF de BM25 y semántica."""

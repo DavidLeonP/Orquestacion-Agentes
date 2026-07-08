@@ -20,6 +20,7 @@ src/
   rag/                 Retriever híbrido (BM25 + Chroma + RRF) y tools RAG
   agents/              Los 4 agentes especializados (ReAct) y schemas
   orchestrator/        Grafo supervisor de LangGraph
+  observability/       Trazas locales (JSONL) y LangSmith
   memory/              Memoria de largo plazo (feedback, perfiles, histórico)
 docs/arquitectura.md   Documento de arquitectura
 main.py                CLI de demostración
@@ -52,6 +53,27 @@ python main.py docente "Genera un examen de 6 preguntas sobre electricidad para 
 python main.py docente "Estructura la unidad de circuitos en sesiones"
 python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 ```
+
+## Observabilidad
+
+Cada petición `docente`/`alumno`/`demo` genera un archivo JSONL en
+`storage/logs/<run_id>.jsonl` con el flujo completo: router, nodos del grafo,
+agentes ReAct, búsquedas RAG y tiempos.
+
+```bash
+python main.py trazas        # resumen de las últimas 10 solicitudes
+python main.py trazas 20     # últimas 20
+```
+
+Para trazas en la nube con **LangSmith**, añade a `.env`:
+
+```bash
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=lsv2_...
+LANGCHAIN_PROJECT=orquestacion-agentes-educacion
+```
+
+Activa `LOG_VERBOSE=true` para ver cada evento en consola.
 
 ## Flujo de un examen
 

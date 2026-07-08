@@ -12,6 +12,7 @@ DIR_DATOS = RAIZ / "data"
 DIR_STORAGE = RAIZ / "storage"
 DIR_CHROMA = DIR_STORAGE / "chroma"
 DIR_MEMORIA = DIR_STORAGE / "memoria"
+DIR_LOGS = DIR_STORAGE / "logs"
 
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
@@ -27,3 +28,7 @@ INDICES = {
 # Límite de iteraciones del bucle ReAct de cada agente (mitigación de
 # riesgos multi-agente: evita bucles infinitos y coste descontrolado).
 MAX_ITERACIONES_REACT = 10
+
+# Observabilidad: trazas locales y LangSmith (LANGCHAIN_* en .env)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_VERBOSE = os.getenv("LOG_VERBOSE", "false").lower() in {"1", "true", "yes"}
