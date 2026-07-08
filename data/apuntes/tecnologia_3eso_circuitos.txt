@@ -1,0 +1,43 @@
+---
+asignatura: Tecnología
+curso: 3º ESO
+anio: 2024
+tipo: apuntes
+titulo: Circuitos en serie y en paralelo
+---
+
+UNIDAD 5: CIRCUITOS ELÉCTRICOS. SERIE Y PARALELO
+
+1. Componentes de un circuito
+Todo circuito eléctrico consta de: generador (pila o batería), conductores
+(cables), receptores (bombillas, motores, zumbadores) y elementos de control
+(interruptores, pulsadores, conmutadores). Los elementos de protección
+(fusibles) evitan daños por sobrecargas.
+
+2. Circuito en serie
+Los receptores se conectan uno a continuación de otro, de modo que la misma
+intensidad atraviesa todos ellos.
+- La resistencia equivalente es la suma: Req = R1 + R2 + R3
+- El voltaje del generador se reparte entre los receptores.
+- Si un receptor se funde, el circuito queda abierto y todos dejan de funcionar.
+Ejemplo de clase: dos bombillas de 3 Ω y 6 Ω en serie con una pila de 9 V.
+Req = 9 Ω, I = 1 A, y las bombillas soportan 3 V y 6 V respectivamente.
+
+3. Circuito en paralelo
+Los receptores se conectan en ramas independientes sometidas al mismo voltaje.
+- La inversa de la resistencia equivalente es la suma de las inversas:
+  1/Req = 1/R1 + 1/R2
+- La intensidad total se reparte entre las ramas.
+- Si un receptor falla, el resto sigue funcionando. Es el montaje usado en las
+  viviendas.
+Ejemplo de clase: dos bombillas de 6 Ω en paralelo con una pila de 12 V.
+Req = 3 Ω, la intensidad total es 4 A y cada rama lleva 2 A.
+
+4. Circuitos mixtos
+Combinan tramos en serie y en paralelo. Para resolverlos se simplifica por
+partes: primero las ramas en paralelo y después los tramos en serie.
+
+5. Simbología normalizada
+En los esquemas se usan símbolos normalizados: pila (dos rayas paralelas de
+distinta longitud), bombilla (círculo con aspa), interruptor, motor (círculo
+con la letra M), resistencia (rectángulo o línea en zigzag).

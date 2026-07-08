@@ -1,0 +1,44 @@
+---
+asignatura: Tecnología
+curso: 3º ESO
+anio: 2024
+tipo: curriculo
+titulo: Programación didáctica - bloque de Electricidad
+---
+
+PROGRAMACIÓN DIDÁCTICA DE TECNOLOGÍA - 3º ESO
+BLOQUE 4: ELECTRICIDAD Y ELECTRÓNICA (2º trimestre, 12 sesiones)
+
+Objetivos de aprendizaje:
+O1. Comprender las magnitudes eléctricas básicas (voltaje, intensidad,
+    resistencia) y sus unidades.
+O2. Aplicar la ley de Ohm a la resolución de circuitos sencillos.
+O3. Analizar y montar circuitos en serie, paralelo y mixtos.
+O4. Calcular potencia y energía eléctrica en contextos cotidianos.
+O5. Conocer las normas de seguridad eléctrica y los elementos de protección
+    de las instalaciones domésticas.
+
+Contenidos:
+C1. La corriente eléctrica. Materiales conductores y aislantes.
+C2. Magnitudes: voltaje, intensidad y resistencia. Instrumentos de medida.
+C3. Ley de Ohm. Resolución de problemas.
+C4. Asociación de receptores: serie, paralelo y mixto.
+C5. Potencia y energía eléctrica. El recibo de la luz.
+C6. Efectos de la corriente. Seguridad eléctrica e instalaciones domésticas.
+
+Distribución temporal orientativa:
+- Sesiones 1-3: corriente eléctrica y magnitudes (C1, C2).
+- Sesiones 4-6: ley de Ohm y problemas (C3).
+- Sesiones 7-9: circuitos serie/paralelo/mixto, práctica de taller (C4).
+- Sesiones 10-11: potencia, energía y seguridad (C5, C6).
+- Sesión 12: examen de la unidad.
+
+Criterios de evaluación:
+CE1. Resuelve problemas aplicando la ley de Ohm con unidades correctas (O1, O2).
+CE2. Calcula resistencias equivalentes en serie y paralelo (O3).
+CE3. Interpreta esquemas con simbología normalizada y monta el circuito (O3).
+CE4. Calcula el coste energético de aparatos domésticos (O4).
+CE5. Identifica los elementos de protección y las normas de seguridad (O5).
+
+Instrumentos de evaluación: examen escrito (60%), práctica de taller (30%),
+cuaderno y actitud (10%).

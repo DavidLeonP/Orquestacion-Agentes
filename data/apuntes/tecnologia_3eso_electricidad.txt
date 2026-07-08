@@ -1,0 +1,43 @@
+---
+asignatura: Tecnología
+curso: 3º ESO
+anio: 2024
+tipo: apuntes
+titulo: Electricidad - conceptos fundamentales
+---
+
+UNIDAD 4: ELECTRICIDAD. CONCEPTOS FUNDAMENTALES
+
+1. La corriente eléctrica
+La corriente eléctrica es el movimiento ordenado de electrones a través de un
+material conductor. Para que exista corriente se necesita un generador que
+mantenga una diferencia de potencial entre dos puntos del circuito.
+
+2. Magnitudes eléctricas básicas
+- Voltaje o tensión (V): diferencia de potencial entre dos puntos. Se mide en
+  voltios (V) con un voltímetro, que se conecta en paralelo.
+- Intensidad (I): cantidad de carga que atraviesa una sección del conductor por
+  unidad de tiempo. Se mide en amperios (A) con un amperímetro, conectado en serie.
+- Resistencia (R): oposición que presenta un material al paso de la corriente.
+  Se mide en ohmios (Ω).
+
+3. La ley de Ohm
+La ley de Ohm relaciona las tres magnitudes anteriores: V = I · R.
+Ejemplo trabajado en clase: si una bombilla de 6 Ω se conecta a una pila de
+12 V, la intensidad que circula es I = V / R = 12 / 6 = 2 A.
+
+4. Potencia y energía eléctrica
+La potencia eléctrica se calcula como P = V · I y se mide en vatios (W).
+La energía consumida es E = P · t, medida en julios (J) o kilovatios-hora (kWh).
+Ejemplo: un radiador de 1500 W encendido 4 horas consume 6 kWh.
+
+5. Efectos de la corriente eléctrica
+La corriente produce efecto térmico (estufas, fusibles), efecto luminoso
+(lámparas), efecto magnético (electroimanes, motores) y efecto químico
+(electrólisis, carga de baterías).
+
+6. Seguridad eléctrica
+Nunca se debe manipular una instalación con las manos húmedas. Los elementos de
+protección de una vivienda son el interruptor general, los magnetotérmicos
+(protegen contra sobrecargas y cortocircuitos) y el diferencial (protege a las
+personas frente a derivaciones).

@@ -1,0 +1,31 @@
+---
+asignatura: Tecnología
+curso: 3º ESO
+anio: 2024
+tipo: examen
+titulo: Examen Unidad 4-5 Electricidad (convocatoria 2024)
+---
+
+EXAMEN DE TECNOLOGÍA - 3º ESO - UNIDADES 4 y 5: ELECTRICIDAD
+Curso 2023/2024. Duración: 55 minutos. Calculadora permitida.
+
+Pregunta 1 (1 punto). Indica si las siguientes afirmaciones son verdaderas o
+falsas y justifica: a) El amperímetro se conecta en paralelo. b) En un circuito
+en paralelo todas las ramas soportan el mismo voltaje.
+
+Pregunta 2 (1,5 puntos). Enuncia la ley de Ohm y despeja las tres magnitudes.
+
+Pregunta 3 (2 puntos). Un motor de 8 Ω funciona conectado a una batería de
+24 V. Calcula la intensidad, la potencia y la energía que consume en 2 horas
+(exprésala en kWh).
+
+Pregunta 4 (2 puntos). Dibuja un circuito con una pila de 12 V y dos bombillas
+de 6 Ω en paralelo. Calcula la resistencia equivalente, la intensidad total y
+la intensidad de cada rama.
+
+Pregunta 5 (1,5 puntos). Explica dos efectos de la corriente eléctrica y pon un
+ejemplo de aplicación de cada uno.
+
+Pregunta 6 (2 puntos). Circuito mixto: una resistencia de 2 Ω en serie con dos
+resistencias de 8 Ω en paralelo, alimentado por una pila de 12 V. Calcula la
+resistencia equivalente y la intensidad total del circuito.

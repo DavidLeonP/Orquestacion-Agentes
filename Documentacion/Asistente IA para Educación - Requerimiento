@@ -1,0 +1,14 @@
+Asistente IA para Educación.
+
+Sistema basado en una arquitectura basada en agentes con herramientas (tools) específicas que ejecutan acciones, leen documentos "al vuelo" y razonan de forma compleja para asistir tanto al docente como al alumnado.
+
+Varios agentes especializados en modalidades.
+
+Curriculum Agent: estructura contenidos
+Exam Generator Agent: crea exámenes con constraints
+Rubric Agent: aplica criterios de evaluación
+Tutor Agent
+
+Tras procesar el conocimiento (apuntes, PDFs, exámenes antiguos), se construye un sistema RAG multi-índice con búsqueda híbrida (léxica + semántica). Los agentes no responden "en general"; se apoyan en la base documental del instituto para que todo se genere exactamente al histórico.
+
+El Asistente tendría varios pasos de razonamiento y llamadas a herramientas y consulta 10 fuentes internas. Cruza rúbricas, revisa ejercicios anteriores y adapta las pruebas.  Y, también incluiremos un "Agente Tutor" para el alumnado.

@@ -1,0 +1,30 @@
+---
+asignatura: Tecnología
+curso: 3º ESO
+anio: 2023
+tipo: examen
+titulo: Examen Unidad 4-5 Electricidad (convocatoria 2023)
+---
+
+EXAMEN DE TECNOLOGÍA - 3º ESO - UNIDADES 4 y 5: ELECTRICIDAD
+Curso 2022/2023. Duración: 55 minutos. Calculadora permitida.
+
+Pregunta 1 (1,5 puntos). Define corriente eléctrica y explica qué condición es
+necesaria para que circule por un circuito.
+
+Pregunta 2 (1,5 puntos). Completa la tabla indicando la magnitud, su unidad y
+el aparato con el que se mide: voltaje, intensidad, resistencia.
+
+Pregunta 3 (2 puntos). Una bombilla de 4 Ω se conecta a una pila de 12 V.
+a) Calcula la intensidad que circula por el circuito.
+b) Calcula la potencia que consume la bombilla.
+
+Pregunta 4 (2 puntos). Dibuja el esquema, con simbología normalizada, de un
+circuito con una pila, un interruptor y dos bombillas en serie. Explica qué
+ocurre si una de las bombillas se funde.
+
+Pregunta 5 (2 puntos). Dos resistencias de 6 Ω y 3 Ω se conectan en paralelo a
+un generador de 6 V. Calcula la resistencia equivalente y la intensidad total.
+
+Pregunta 6 (1 punto). Cita los tres elementos de protección de una instalación
+eléctrica doméstica e indica la función del diferencial.

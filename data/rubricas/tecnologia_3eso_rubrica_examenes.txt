@@ -1,0 +1,39 @@
+---
+asignatura: Tecnología
+curso: 3º ESO
+anio: 2024
+tipo: rubrica
+titulo: Rúbrica y criterios de calificación para exámenes de Electricidad
+---
+
+RÚBRICA DE EVALUACIÓN - EXÁMENES DE ELECTRICIDAD - TECNOLOGÍA 3º ESO
+Departamento de Tecnología. Aprobada en reunión de departamento.
+
+Criterios de diseño del examen:
+1. El examen debe sumar exactamente 10 puntos y cada pregunta debe indicar su
+   puntuación entre paréntesis.
+2. Debe combinar al menos tres tipos de pregunta: teoría/definiciones,
+   problemas numéricos y esquemas/dibujo de circuitos.
+3. Al menos el 40% de la puntuación debe corresponder a problemas numéricos
+   con cálculos (ley de Ohm, potencia, energía, asociación de resistencias).
+4. Debe incluir al menos una pregunta de seguridad eléctrica o instalaciones
+   domésticas.
+5. La duración de referencia es de 55 minutos.
+6. Los enunciados numéricos deben usar valores que den resultados sencillos
+   (números enteros o decimales de un dígito), coherentes con el nivel de 3º ESO.
+
+Criterios de corrección:
+- Problemas: planteamiento correcto de la fórmula 40%, sustitución 20%,
+  resultado con unidades 40%. Un resultado sin unidades pierde la mitad de la
+  puntuación del apartado.
+- Esquemas: uso de simbología normalizada obligatorio; cada símbolo incorrecto
+  descuenta 0,25 puntos.
+- Teoría: se valora precisión en el vocabulario técnico (voltaje, intensidad,
+  resistencia) y ejemplos propios.
+- Ortografía y presentación pueden descontar hasta 0,5 puntos en total.
+
+Niveles de desempeño (para evaluación por competencias):
+- Excelente (9-10): resuelve problemas mixtos y justifica con vocabulario técnico.
+- Notable (7-8): resuelve serie y paralelo simples con unidades correctas.
+- Aprobado (5-6): aplica la ley de Ohm en circuitos de un solo receptor.
+- Insuficiente (<5): no relaciona las magnitudes básicas.

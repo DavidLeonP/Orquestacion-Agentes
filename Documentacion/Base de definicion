@@ -1,0 +1,17 @@
+Adjunto encontrarás 2 papers que te darán un overview de agentic ai y protocolos de comunicación, especialmente importante para escalar soluciones basadas en agentes.
+
+Te paso adicionalmente varios blogs/tutoriales, donde explican a alto nivel los multi-agentes con algunos ejemplos en diferentes frameworks (SmolAgents, crewAI, LangChain&LangGraph):
+
+https://www.codemag.com/Article/2601051/Understanding-AI-Agents-and-Agentic-AI-Concepts-Tools-and-Implementation-with-SmolAgents
+https://wandb.ai/byyoung3/Generative-AI/reports/Tutorial-Building-AI-agents-with-CrewAI--VmlldzoxMTUwNTA4Ng
+https://towardsdatascience.com/creating-an-ai-agent-to-write-blog-posts-with-crewai/
+https://www.firecrawl.dev/blog/crewai-multi-agent-systems-tutorial
+https://cwan.com/resources/blog/building-multi-agent-systems-with-langgraph/
+
+Te paso varios casos de estudios de agentes y multi-agentes usados en aplicaciones reales:
+https://blog.langchain.com/customers-kensho/
+https://blog.langchain.com/customers-monday/
+https://blog.langchain.com/customers-vodafone-italy/
+https://blog.langchain.com/exa/
+
+Te recomiendo ver el código y familiarizarte con los frameworks, empezando a asociar con los conceptos teóricos leídos en los papers.
