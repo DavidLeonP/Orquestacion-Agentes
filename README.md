@@ -12,7 +12,7 @@ Modelo C4: [docs/c4/](docs/c4/).
 ## Arranque rápido (API)
 
 ```powershell
-cd "C:\INTEGRACIONES GRAIMAN\Orquestacion-Agentes"
+cd "C:\xxxx\Orquestacion-Agentes"
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 # Configura .env: OPENAI_API_KEY, DATABASE_URL, JWT_SECRET
