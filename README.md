@@ -1,88 +1,166 @@
 # Asistente IA para Educación
 
-Sistema multi-agente (Agentic AI) que asiste a docentes y alumnado de un
-instituto, construido con LangChain + LangGraph. Cuatro agentes especializados
-(Curriculum, Exam Generator, Rubric y Tutor) coordinados por un orquestador
-supervisor, apoyados en la base documental del centro mediante RAG multi-índice
-con búsqueda híbrida (BM25 + embeddings).
+Sistema multi-agente (LangChain + LangGraph) con **API REST**, **JWT** y
+conocimiento RAG **privado por usuario** persistido en **MySQL**.
 
-La arquitectura completa, con las directrices de orquestación, conocimiento y
-aprendizaje fundamentadas en los papers de referencia, está en
+Cuatro agentes (Curriculum, Exam Generator, Rubric, Tutor) coordinados por un
+orquestador supervisor. Detalle de diseño en
 [docs/arquitectura.md](docs/arquitectura.md).
+Diagramas de secuencia: [docs/diagramas-secuencia.md](docs/diagramas-secuencia.md).
+Modelo C4: [docs/c4/](docs/c4/).
+
+## Arranque rápido (API)
+
+```powershell
+cd "C:\INTEGRACIONES GRAIMAN\Orquestacion-Agentes"
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+# Configura .env: OPENAI_API_KEY, DATABASE_URL, JWT_SECRET
+
+$env:PYTHONPATH = (Get-Location).Path
+python scripts\init_db.py
+uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+- OpenAPI: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
+### Usuario demo
+
+| Campo | Valor |
+|-------|--------|
+| Email | `demo@instituto.local` |
+| Password | `demo1234` |
+| Rol | `docente` |
+| KB | 6 documentos Tecnología 3º ESO (si corriste el seed) |
+
+```powershell
+$login = Invoke-RestMethod -Method POST -Uri http://127.0.0.1:8000/auth/login `
+  -ContentType "application/json" `
+  -Body '{"email":"demo@instituto.local","password":"demo1234"}'
+$h = @{ Authorization = "Bearer $($login.access_token)" }
+
+Invoke-RestMethod -Uri http://127.0.0.1:8000/knowledge/documents -Headers $h
+
+$req = Invoke-RestMethod -Method POST -Uri http://127.0.0.1:8000/requests `
+  -Headers $h -ContentType "application/json" `
+  -Body '{"peticion":"Estructura la unidad de circuitos en 3 sesiones"}'
+
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/requests/$($req.id)" -Headers $h
+
+# Si status = waiting_approval (examen):
+# Invoke-RestMethod -Method POST -Uri "http://127.0.0.1:8000/requests/$($req.id)/approve" `
+#   -Headers $h -ContentType "application/json" -Body '{"decision":"si"}'
+```
+
+## Endpoints
+
+**Auth**
+
+- `POST /auth/register` — `{ email, password, rol: docente|alumno }`
+- `POST /auth/login` — JWT
+- `GET /auth/me`
+
+**Conocimiento (MySQL, por usuario)**
+
+- `POST /knowledge/{indice}/documents` — `apuntes` \| `examenes` \| `rubricas` \| `curriculo`
+- `GET /knowledge/documents` · `GET /knowledge/documents/{id}`
+- `PATCH /knowledge/documents/{id}` · `DELETE /knowledge/documents/{id}`
+- `POST /knowledge/ingest` · `POST /knowledge/documents/{id}/reprocess`
+- `GET /knowledge/chunks`
+
+**Solicitudes**
+
+- `POST /requests` — orquestador en background
+- `GET /requests` · `GET /requests/{id}`
+- `POST /requests/{id}/approve` — HITL docente
+- `GET /requests/{id}/events`
+
+## Persistencia
+
+| Dato | Dónde |
+|------|--------|
+| Usuarios, documentos, chunks, embeddings | MySQL (`DATABASE_URL`) |
+| Solicitudes, approvals, memoria LTM | MySQL |
+| Búsqueda semántica | `chunk_embeddings` + coseno en app |
+| Búsqueda léxica | BM25 sobre `chunks` del usuario |
+
+En el flujo API **no** se usa Chroma ni `storage/chunks/*.json`. Cada usuario solo
+consulta su propia base de conocimiento.
+
+## Pipeline de pruebas
+
+```powershell
+$env:PYTHONPATH = (Get-Location).Path
+
+# Smoke (auth + CRUD, sin OpenAI)
+python scripts\run_test_pipeline.py --smoke
+
+# Full (ingest + LLM + orquestador)
+python scripts\run_test_pipeline.py
+
+# Pytest
+pytest tests\test_pipeline_api.py -v
+```
+
+## Seed demo
+
+```powershell
+$env:PYTHONPATH = (Get-Location).Path
+# Requiere usuario demo registrado
+python scripts\seed_demo_kb.py
+```
 
 ## Estructura
 
 ```
-data/                  Base documental del instituto (un índice por carpeta)
-  apuntes/  examenes/  rubricas/  curriculo/
 src/
-  ingestion/           Pipeline de ingesta e indexación
-  rag/                 Retriever híbrido (BM25 + Chroma + RRF) y tools RAG
-  agents/              Los 4 agentes especializados (ReAct) y schemas
-  orchestrator/        Grafo supervisor de LangGraph
-  observability/       Trazas locales (JSONL) y LangSmith
-  memory/              Memoria de largo plazo (feedback, perfiles, histórico)
-docs/arquitectura.md   Documento de arquitectura
-main.py                CLI de demostración
+  api/           FastAPI (auth, knowledge, requests)
+  db/            Modelos SQLAlchemy + sesión MySQL
+  ingestion/     Pipeline chunk + embed → MySQL
+  rag/           Retriever híbrido MySQL + tools
+  agents/        Curriculum, Exam, Rubric, Tutor (ReAct)
+  orchestrator/  Grafo LangGraph + HITL
+  memory/        Memoria MySQL (API) / JSON (CLI legacy)
+  observability/ Trazas JSONL + LangSmith
+scripts/
+  init_db.py
+  seed_demo_kb.py
+  run_test_pipeline.py
+tests/
+  test_pipeline_api.py
+docs/
+  arquitectura.md
+  diagramas-secuencia.md
+  c4/                  Contexto, contenedores, componentes, código
+main.py          CLI legacy (opcional)
 ```
 
-## Puesta en marcha
+## Variables `.env`
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env      # añade tu OPENAI_API_KEY
+```env
+OPENAI_API_KEY=...
+LLM_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=text-embedding-3-small
+DATABASE_URL=mysql+pymysql://USER:PASS@HOST:3306/DB
+JWT_SECRET=...
+JWT_EXPIRE_MINUTES=1440
+CORS_ORIGINS=*
+# LangSmith opcional
+# LANGCHAIN_TRACING_V2=true
+# LANGCHAIN_API_KEY=...
+# LANGCHAIN_PROJECT=orquestacion-agentes-educacion
 ```
 
-1. Construir los índices RAG (incluye datos de ejemplo de Tecnología 3º ESO):
+## Flujo de un examen (API)
 
-```bash
-python main.py ingestar
-```
+1. `POST /requests` con la petición de generar examen.
+2. Exam Generator consulta la KB del usuario (ReAct).
+3. Rubric Agent valida (`VEREDICTO: APROBADO` / `CAMBIOS REQUERIDOS`).
+4. Status `waiting_approval` con borrador + veredicto.
+5. `POST /requests/{id}/approve` → respuesta final y memoria MySQL.
 
-2. Ejecutar los escenarios de demostración:
+## CLI legacy
 
-```bash
-python main.py demo
-```
-
-3. O hacer peticiones directas:
-
-```bash
-python main.py docente "Genera un examen de 6 preguntas sobre electricidad para 3º ESO"
-python main.py docente "Estructura la unidad de circuitos en sesiones"
-python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
-```
-
-## Observabilidad
-
-Cada petición `docente`/`alumno`/`demo` genera un archivo JSONL en
-`storage/logs/<run_id>.jsonl` con el flujo completo: router, nodos del grafo,
-agentes ReAct, búsquedas RAG y tiempos.
-
-```bash
-python main.py trazas        # resumen de las últimas 10 solicitudes
-python main.py trazas 20     # últimas 20
-```
-
-Para trazas en la nube con **LangSmith**, añade a `.env`:
-
-```bash
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=lsv2_...
-LANGCHAIN_PROJECT=orquestacion-agentes-educacion
-```
-
-Activa `LOG_VERBOSE=true` para ver cada evento en consola.
-
-## Flujo de un examen
-
-1. El router clasifica la petición y la envía al Exam Generator Agent.
-2. El agente consulta exámenes históricos, apuntes y rúbricas (bucle ReAct).
-3. El Rubric Agent valida el borrador contra los criterios del departamento
-   (validación cruzada); si hay incumplimientos, se regenera.
-4. El grafo se interrumpe y pide la aprobación del docente (human-in-the-loop).
-5. Si se aprueba, el examen pasa al histórico del centro (ciclo de mejora).
-
-Toda respuesta cita las fuentes internas consultadas; los agentes no responden
-"en general".
+`python main.py docente|alumno|demo|ingestar` sigue disponible para demos locales
+con el stack anterior (Chroma/JSON). El camino estable para frontend es la **API REST**.

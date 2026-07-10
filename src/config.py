@@ -17,7 +17,7 @@ DIR_LOGS = DIR_STORAGE / "logs"
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
-# Índices del RAG multi-índice: nombre -> subcarpeta de data/
+INDICES_NOMBRES = ("apuntes", "examenes", "rubricas", "curriculo")
 INDICES = {
     "apuntes": DIR_DATOS / "apuntes",
     "examenes": DIR_DATOS / "examenes",
@@ -25,10 +25,18 @@ INDICES = {
     "curriculo": DIR_DATOS / "curriculo",
 }
 
-# Límite de iteraciones del bucle ReAct de cada agente (mitigación de
-# riesgos multi-agente: evita bucles infinitos y coste descontrolado).
 MAX_ITERACIONES_REACT = 10
 
-# Observabilidad: trazas locales y LangSmith (LANGCHAIN_* en .env)
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_VERBOSE = os.getenv("LOG_VERBOSE", "false").lower() in {"1", "true", "yes"}
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "mysql+pymysql://user:pass@localhost:3306/dveloper_gestion_agentes_educacion",
+)
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()
+]

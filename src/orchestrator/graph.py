@@ -1,14 +1,6 @@
-"""Orquestador supervisor (directrices de orquestación, docs/arquitectura.md §2).
+"""Orquestador supervisor (directrices de orquestación, docs/arquitectura.md §2)."""
 
-Grafo LangGraph con:
-- Router: clasifica la intención y enruta al agente especializado.
-- Agentes: subgrafos ReAct (Curriculum, Exam Generator, Rubric, Tutor).
-- Validación cruzada: el Rubric Agent revisa todo examen generado.
-- Human-in-the-loop: el docente aprueba el examen antes de darlo por definitivo.
-- Memoria: checkpointer (sesión) + store JSON (largo plazo, ciclo de mejora).
-"""
-
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -22,7 +14,7 @@ from src.agents.rubric import crear_rubric_agent
 from src.agents.schemas import DecisionRouter
 from src.agents.tutor import crear_tutor_agent
 from src.config import LLM_MODEL
-from src.memory import store
+from src.memory import store as default_store
 from src.observability.trazas import registrar_evento
 
 MAX_REINTENTOS_VALIDACION = 2
@@ -39,7 +31,8 @@ class EstadoOrquestador(TypedDict, total=False):
     respuesta_final: str
 
 
-def construir_grafo():
+def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
+    store = memory_backend or default_store
     llm_router = ChatOpenAI(model=LLM_MODEL, temperature=0).with_structured_output(
         DecisionRouter
     )
@@ -50,10 +43,7 @@ def construir_grafo():
         "tutor": crear_tutor_agent(),
     }
 
-    # --- Nodos -------------------------------------------------------------
-
     def router(estado: EstadoOrquestador) -> dict:
-        # El alumnado solo interactúa con el Tutor Agent (salvaguarda).
         if estado.get("rol_usuario") == "alumno":
             destino = "tutor"
             registrar_evento(
@@ -83,7 +73,6 @@ def construir_grafo():
 
     def nodo_exam_generator(estado: EstadoOrquestador) -> dict:
         peticion = estado["peticion"]
-        # Regeneración: incorpora el veredicto de la validación cruzada.
         if estado.get("veredicto") and "CAMBIOS REQUERIDOS" in estado["veredicto"]:
             peticion += (
                 "\n\nTu borrador anterior fue rechazado por el Rubric Agent. "
@@ -109,7 +98,6 @@ def construir_grafo():
         }
 
     def validar(estado: EstadoOrquestador) -> dict:
-        """Validación cruzada: el Rubric Agent revisa el examen generado."""
         veredicto = ejecutar_agente(
             agentes["rubric"],
             "Valida el siguiente examen contra las rúbricas y criterios de "
@@ -129,7 +117,6 @@ def construir_grafo():
         }
 
     def aprobacion_docente(estado: EstadoOrquestador) -> dict:
-        """Human-in-the-loop: interrumpe el grafo hasta la decisión del docente."""
         decision = interrupt(
             {
                 "mensaje": "Examen validado. ¿Apruebas el material? (si/no)",
@@ -140,7 +127,6 @@ def construir_grafo():
         aprobado = str(decision).strip().lower() in {"si", "sí", "s", "yes", "y"}
         registrar_evento("aprobacion_docente", decision="aprobado" if aprobado else "rechazado")
         if aprobado:
-            # Ciclo de mejora (§4.3): lo aprobado pasa al histórico del centro.
             store.guardar(
                 "feedback_docente",
                 {"peticion": estado["peticion"], "decision": "aprobado"},
@@ -160,8 +146,6 @@ def construir_grafo():
     def finalizar(estado: EstadoOrquestador) -> dict:
         return {"respuesta_final": estado["borrador"]}
 
-    # --- Aristas -----------------------------------------------------------
-
     def ruta_desde_router(estado: EstadoOrquestador) -> str:
         return estado["agente_destino"]
 
@@ -169,8 +153,6 @@ def construir_grafo():
         if "VEREDICTO: APROBADO" in estado["veredicto"].upper():
             return "aprobacion_docente"
         if estado["intentos_validacion"] >= MAX_REINTENTOS_VALIDACION:
-            # Límite de reintentos (mitigación de propagación de errores):
-            # se entrega al docente con el veredicto para decisión humana.
             return "aprobacion_docente"
         return "exam_generator"
 
@@ -200,4 +182,4 @@ def construir_grafo():
     grafo.add_edge("aprobacion_docente", END)
     grafo.add_edge("finalizar", END)
 
-    return grafo.compile(checkpointer=MemorySaver())
+    return grafo.compile(checkpointer=checkpointer or MemorySaver())
