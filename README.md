@@ -6,9 +6,11 @@ instituto, construido con LangChain + LangGraph. Cuatro agentes especializados
 supervisor, apoyados en la base documental del centro mediante RAG multi-índice
 con búsqueda híbrida (BM25 + embeddings).
 
-La arquitectura completa, con las directrices de orquestación, conocimiento y
-aprendizaje fundamentadas en los papers de referencia, está en
-[docs/arquitectura.md](docs/arquitectura.md).
+Documentación:
+
+- [docs/arquitectura.md](docs/arquitectura.md) — directrices de orquestación, conocimiento y aprendizaje
+- [docs/implementacion.md](docs/implementacion.md) — API, Docker, despliegue y Postman
+- [docs/README.md](docs/README.md) — índice de docs
 
 ## Estructura
 

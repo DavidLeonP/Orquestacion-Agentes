@@ -1,0 +1,77 @@
+{
+  "info": {
+    "_postman_id": "asistente-ia-educacion",
+    "name": "Asistente IA Educación",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://146.190.151.125:8000" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/health"
+      }
+    },
+    {
+      "name": "Ingestar documentos",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/ingestar"
+      }
+    },
+    {
+      "name": "Chat alumno - tutoría",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"peticion\": \"No entiendo la diferencia entre circuito en serie y en paralelo\",\n  \"rol\": \"alumno\",\n  \"alumno_id\": \"alumno-001\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/chat"
+      }
+    },
+    {
+      "name": "Chat docente - generar examen",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const data = pm.response.json();",
+              "if (data.thread_id) {",
+              "  pm.collectionVariables.set('thread_id', data.thread_id);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"peticion\": \"Genera un examen de 6 preguntas sobre electricidad y circuitos para Tecnología de 3º ESO, dificultad media, 55 minutos.\",\n  \"rol\": \"docente\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/chat"
+      }
+    },
+    {
+      "name": "Aprobar examen",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"thread_id\": \"{{thread_id}}\",\n  \"decision\": \"si\"\n}"
+        },
+        "url": "{{baseUrl}}/api/v1/approve"
+      }
+    }
+  ]
+}

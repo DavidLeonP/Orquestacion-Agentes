@@ -4,3 +4,4 @@ __pycache__/
 .env
 storage/
 .chroma/
+docs/_pipeline_run_raw.json

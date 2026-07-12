@@ -1,0 +1,19 @@
+services:
+  asistente:
+    build: .
+    container_name: asistente-ia-educacion
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+    volumes:
+      - ./data:/app/data:ro
+      - asistente_storage:/app/storage
+    restart: unless-stopped
+    mem_limit: 700m
+
+volumes:
+  asistente_storage:
