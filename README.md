@@ -66,3 +66,40 @@ python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 
 Toda respuesta cita las fuentes internas consultadas; los agentes no responden
 "en general".
+
+## Despliegue y actualización (VPS)
+
+Requisitos en tu Mac: [Docker Desktop](https://www.docker.com/products/docker-desktop/) en ejecución y `sshpass` (`brew install sshpass`).
+
+Configura en `.env` las variables `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLOY_PATH`, `API_BASE_URL` y `DOCKER_IMAGE` (ver `.env.example`).
+
+| Comando | Qué hace |
+|---|---|
+| `./scripts/remote.sh deploy` | Build local → rsync → sube imagen al VPS → reinicia contenedor |
+| `./scripts/remote.sh build` | Solo construye la imagen Docker en local |
+| `./scripts/remote.sh push-image` | Transfiere la imagen ya construida al VPS |
+| `./scripts/remote.sh rsync` | Sincroniza código y `data/` al servidor (sin imagen) |
+| `./scripts/remote.sh restart` | Sube `.env` y recrea el contenedor |
+| `./scripts/remote.sh health` | Comprueba `GET /api/v1/health` en la API pública |
+
+Flujo habitual tras cambiar código:
+
+```bash
+./scripts/remote.sh deploy
+./scripts/remote.sh health
+```
+
+Solo cambios de configuración (`.env`):
+
+```bash
+./scripts/remote.sh restart
+```
+
+Compose local (sin VPS):
+
+```bash
+docker compose up -d --build
+curl http://localhost:8000/api/v1/health
+```
+
+Detalle técnico del despliegue: [docs/implementacion.md](docs/implementacion.md) §7.

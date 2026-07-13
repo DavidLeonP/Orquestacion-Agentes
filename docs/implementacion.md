@@ -220,6 +220,15 @@ Archivo `.env` (ver `.env.example`):
 | `OPENAI_API_KEY` | — | Obligatoria para chat, approve e ingestar |
 | `LLM_MODEL` | `gpt-4o-mini` | Modelo de chat |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Embeddings del RAG |
+| `SSH_HOST` / `SSH_USER` / `SSH_PORT` / `SSH_PASSWORD` | — | Acceso al VPS (solo en `.env` local, no en el repo) |
+| `DEPLOY_PATH` | `/opt/asistente-ia` | Ruta remota del proyecto |
+| `API_BASE_URL` | — | URL pública de la API (Postman / scripts) |
+| `CONTAINER_NAME` | `asistente-ia-educacion` | Nombre del contenedor Docker |
+| `DOCKER_IMAGE` | `asistente-ia_asistente:latest` | Etiqueta de la imagen (build local + carga en VPS) |
+
+Helper remoto: `./scripts/remote.sh deploy|build|push-image|rsync|restart|health|ssh '…'` (lee esas variables del `.env`).
+
+La imagen se **construye en local** (Docker Desktop) y se transfiere al VPS con `docker save | ssh docker load`, evitando compilar en el servidor con poca RAM.
 
 ## 7. Docker
 
@@ -243,7 +252,7 @@ curl -X POST http://localhost:8000/api/v1/ingestar
 
 Límite de memoria del servicio: **700m** (pensado para VPS de ~1 GB RAM).
 
-### 7.3 Despliegue actual en servidor
+### 7.3 Despliegue en VPS (build local + SSH)
 
 | Parámetro | Valor |
 |---|---|
@@ -252,28 +261,56 @@ Límite de memoria del servicio: **700m** (pensado para VPS de ~1 GB RAM).
 | Contenedor | `asistente-ia-educacion` |
 | Puerto público | `8000` |
 | Imagen | `asistente-ia_asistente:latest` |
-| Swap añadido | 2 GB (`/swapfile`) para poder construir con poca RAM |
 
-Nota: en ese host, `docker-compose` 1.29 falla al recrear contenedores con Docker Engine reciente (`KeyError: ContainerConfig`). El arranque estable se hace con `docker run` (ver abajo).
+El VPS tiene ~1 GB RAM; la imagen se compila en la máquina de desarrollo y se sube por SSH. Script: `./scripts/remote.sh`.
+
+**Actualización completa** (código + imagen + reinicio):
+
+```bash
+./scripts/remote.sh deploy
+./scripts/remote.sh health
+```
+
+Pasos que ejecuta `deploy`:
+
+1. `docker build -t asistente-ia_asistente:latest .` en local
+2. `rsync` del proyecto a `/opt/asistente-ia` (incluye `data/`, excluye `.venv`, `storage`, `.git`)
+3. `docker save … | ssh … docker load` en el VPS
+4. Sube `.env` y recrea el contenedor con `docker run`
+
+**Solo configuración** (`.env`):
+
+```bash
+./scripts/remote.sh restart
+```
+
+**Comandos granulares:**
+
+```bash
+./scripts/remote.sh build        # solo build local
+./scripts/remote.sh push-image   # sube imagen ya construida
+./scripts/remote.sh rsync        # sincroniza archivos sin tocar imagen/contenedor
+./scripts/remote.sh ssh 'docker ps'
+```
+
+Recreación manual en el servidor (referencia):
 
 ```bash
 ssh root@146.190.151.125
 cd /opt/asistente-ia
-# editar .env con OPENAI_API_KEY
 docker rm -f asistente-ia-educacion 2>/dev/null || true
 set -a && . ./.env && set +a
 docker run -d --name asistente-ia-educacion \
   --restart unless-stopped --memory 700m \
   -p 8000:8000 \
-  -e OPENAI_API_KEY="$OPENAI_API_KEY" \
-  -e LLM_MODEL="${LLM_MODEL:-gpt-4o-mini}" \
-  -e EMBEDDING_MODEL="${EMBEDDING_MODEL:-text-embedding-3-small}" \
+  -e OPENAI_API_KEY -e LLM_MODEL -e EMBEDDING_MODEL \
+  -e LANGCHAIN_TRACING_V2 -e LANGCHAIN_API_KEY -e LANGCHAIN_PROJECT \
+  -e DATABASE_URL -e JWT_SECRET -e JWT_EXPIRE_MINUTES -e CORS_ORIGINS \
+  -e LOG_LEVEL -e LOG_VERBOSE \
   -v /opt/asistente-ia/data:/app/data:ro \
   -v asistente-ia_asistente_storage:/app/storage \
   asistente-ia_asistente:latest
 ```
-
-Tras cambiar código: `rsync` del proyecto → `docker build -t asistente-ia_asistente:latest .` → recrear el contenedor como arriba.
 
 URLs públicas (si el puerto 8000 está abierto en el firewall del proveedor):
 

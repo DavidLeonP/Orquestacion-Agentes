@@ -17,8 +17,17 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASE_URL = os.getenv("BASE_URL", "http://146.190.151.125:8000").rstrip("/")
-OUT_JSON = Path(__file__).resolve().parents[1] / "docs" / "_pipeline_run_raw.json"
+ROOT = Path(__file__).resolve().parents[1]
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
+BASE_URL = os.getenv("BASE_URL") or os.getenv("API_BASE_URL") or "http://127.0.0.1:8000"
+BASE_URL = BASE_URL.rstrip("/")
+OUT_JSON = ROOT / "docs" / "_pipeline_run_raw.json"
 TIMEOUT = 300
 
 
