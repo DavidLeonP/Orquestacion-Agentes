@@ -171,11 +171,17 @@ def _grafo():
 def _parsear_estado(estado: dict, thread_id: str) -> ChatResponse:
     if "__interrupt__" in estado:
         datos = estado["__interrupt__"][0].value
+        veredicto = datos.get("veredicto")
+        if isinstance(veredicto, dict):
+            from src.agents.schemas import VeredictoValidacion, render_veredicto, safe_parse
+
+            v, _ = safe_parse(VeredictoValidacion, veredicto)
+            veredicto = render_veredicto(v)
         return ChatResponse(
             thread_id=thread_id,
             status="awaiting_approval",
             borrador=datos.get("borrador"),
-            veredicto=datos.get("veredicto"),
+            veredicto=veredicto if isinstance(veredicto, str) else str(veredicto),
             mensaje=datos.get("mensaje", "¿Apruebas el material? (si/no)"),
         )
     return ChatResponse(
@@ -187,10 +193,13 @@ def _parsear_estado(estado: dict, thread_id: str) -> ChatResponse:
 
 @app.get("/api/v1/health")
 def health():
+    from src.llm import describe_llm
+
     return {
         "status": "ok",
         "service": "asistente-ia-educacion",
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "llm": describe_llm(),
     }
 
 

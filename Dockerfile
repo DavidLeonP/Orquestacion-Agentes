@@ -20,4 +20,4 @@ RUN mkdir -p storage/chroma storage/chunks storage/memoria
 EXPOSE 8000
 
 # Solo arranca la API. La ingesta se lanza con POST /api/v1/ingestar.
-CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.legacy_chat_api:app", "--host", "0.0.0.0", "--port", "8000"]

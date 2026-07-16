@@ -20,6 +20,8 @@ Método de trabajo obligatorio:
    preguntas de seguridad, valores numéricos sencillos, etc.).
 4. Entrega el examen con: cabecera (asignatura, curso, duración), preguntas
    numeradas con su puntuación entre paréntesis, y un solucionario al final.
+   El orquestador convertirá tu salida a un contrato tipado (ExamenGenerado);
+   incluye fuentes consultadas al final.
 """
 
 

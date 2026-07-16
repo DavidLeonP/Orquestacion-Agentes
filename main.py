@@ -71,10 +71,20 @@ def _ejecutar(peticion: str, rol: str, alumno_id: str = "anonimo") -> None:
         while "__interrupt__" in estado:
             datos = estado["__interrupt__"][0].value
             print("\n--- BORRADOR PENDIENTE DE APROBACIÓN ---\n")
-            print(datos["borrador"])
+            print(datos.get("borrador", ""))
             print("\n--- VALIDACIÓN CRUZADA (Rubric Agent) ---\n")
-            print(datos["veredicto"])
-            decision = input(f"\n{datos['mensaje']} > ").strip() or "si"
+            veredicto = datos.get("veredicto", "")
+            if isinstance(veredicto, dict):
+                from src.agents.schemas import (
+                    VeredictoValidacion,
+                    render_veredicto,
+                    safe_parse,
+                )
+
+                v, _ = safe_parse(VeredictoValidacion, veredicto)
+                veredicto = render_veredicto(v)
+            print(veredicto)
+            decision = input(f"\n{datos.get('mensaje', '¿Apruebas?')} > ").strip() or "si"
             estado = _invocar_grafo(app, Command(resume=decision), config)
 
         registrar_evento(

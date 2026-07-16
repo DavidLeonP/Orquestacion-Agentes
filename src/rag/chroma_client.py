@@ -10,9 +10,9 @@ from functools import lru_cache
 
 import chromadb
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 
-from src.config import DIR_CHROMA, EMBEDDING_MODEL
+from src.config import DIR_CHROMA
+from src.llm import get_embeddings as registry_embeddings
 
 _lock = threading.RLock()
 _client = None
@@ -28,8 +28,8 @@ def obtener_cliente_chroma():
 
 
 @lru_cache(maxsize=1)
-def obtener_embeddings() -> OpenAIEmbeddings:
-    return OpenAIEmbeddings(model=EMBEDDING_MODEL)
+def obtener_embeddings():
+    return registry_embeddings()
 
 
 def obtener_coleccion(indice: str) -> Chroma:

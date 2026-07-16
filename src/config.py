@@ -14,8 +14,16 @@ DIR_CHROMA = DIR_STORAGE / "chroma"
 DIR_MEMORIA = DIR_STORAGE / "memoria"
 DIR_LOGS = DIR_STORAGE / "logs"
 
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+# Perfil de recursos: cloud_openai | local_barato | local_calidad
+LLM_PROFILE = os.getenv("LLM_PROFILE", "cloud_openai")
+
+# Overrides opcionales (si están en el entorno, pisan el perfil)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER")
+LLM_MODEL = os.getenv("LLM_MODEL")
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 INDICES_NOMBRES = ("apuntes", "examenes", "rubricas", "curriculo")
 INDICES = {

@@ -9,11 +9,32 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from sqlalchemy.orm import Session
 
+from src.agents.schemas import (
+    VeredictoValidacion,
+    render_veredicto,
+    safe_parse,
+)
 from src.db.models import Approval, Request, RequestEvent
 from src.db.session import SessionLocal
 from src.memory import mysql_store as mem
 from src.orchestrator.graph import construir_grafo
 from src.rag.context import reset_rag_user_id, set_rag_user_id
+
+
+def _texto_veredicto_hitl(interrupt_data: dict) -> str:
+    """Normaliza veredicto tipado o legado a texto para la tabla approvals."""
+    raw = interrupt_data.get("veredicto", "")
+    if isinstance(raw, dict):
+        veredicto, _ = safe_parse(VeredictoValidacion, raw)
+        return render_veredicto(veredicto)
+    if isinstance(raw, str):
+        return raw
+    return str(raw or "")
+
+
+def _borrador_hitl(interrupt_data: dict) -> str:
+    return str(interrupt_data.get("borrador") or "")
+
 
 # Checkpointer de proceso (HITL entre requests HTTP mientras el proceso viva).
 # Para multi-worker en producción conviene un checkpointer externo.
@@ -64,17 +85,25 @@ def ejecutar_request(request_id: int) -> None:
                     db.add(
                         Approval(
                             request_id=req.id,
-                            borrador=interrupt_data.get("borrador", ""),
-                            veredicto=interrupt_data.get("veredicto", ""),
+                            borrador=_borrador_hitl(interrupt_data),
+                            veredicto=_texto_veredicto_hitl(interrupt_data),
                             decision="pending",
                         )
                     )
                 else:
-                    req.approval.borrador = interrupt_data.get("borrador", "")
-                    req.approval.veredicto = interrupt_data.get("veredicto", "")
+                    req.approval.borrador = _borrador_hitl(interrupt_data)
+                    req.approval.veredicto = _texto_veredicto_hitl(interrupt_data)
                     req.approval.decision = "pending"
                 db.commit()
-                _add_event(db, req.id, "waiting_approval", {"mensaje": interrupt_data.get("mensaje")})
+                _add_event(
+                    db,
+                    req.id,
+                    "waiting_approval",
+                    {
+                        "mensaje": interrupt_data.get("mensaje"),
+                        "veredicto": interrupt_data.get("veredicto"),
+                    },
+                )
                 return
 
             for nodo, actualizacion in chunk.items():

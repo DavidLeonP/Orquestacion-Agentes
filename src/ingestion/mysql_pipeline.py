@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import re
 
-from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
 
-from src.config import EMBEDDING_MODEL
 from src.db.models import Chunk, ChunkEmbedding, Document
+from src.llm import active_embedding_model, get_embeddings
 from src.rag.mysql_store import invalidar_cache_retriever
 
 CABECERA_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
@@ -37,7 +36,8 @@ def _borrar_chunks_documento(db: Session, document_id: int) -> None:
 def indexar_documento(db: Session, doc: Document) -> int:
     """Trocea, embebe y persiste chunks del documento. Devuelve nº de chunks."""
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-    embedder = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+    embedder = get_embeddings()
+    emb_model = active_embedding_model()
 
     meta_base = dict(doc.metadatos or {})
     meta_base.setdefault("fuente", doc.filename)
@@ -64,7 +64,7 @@ def indexar_documento(db: Session, doc: Document) -> int:
         db.add(
             ChunkEmbedding(
                 chunk_id=chunk.id,
-                model=EMBEDDING_MODEL,
+                model=emb_model,
                 dims=len(emb),
                 embedding=emb,
             )

@@ -5,13 +5,18 @@ observa la evidencia e itera hasta MAX_ITERACIONES_REACT.
 """
 
 import time
+from typing import TypeVar
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel
 
-from src.config import LLM_MODEL, MAX_ITERACIONES_REACT
+from src.agents.schemas import safe_parse
+from src.config import MAX_ITERACIONES_REACT
+from src.llm import get_chat_model
 from src.observability.trazas import registrar_evento
+
+T = TypeVar("T", bound=BaseModel)
 
 DIRECTRIZ_GROUNDING = (
     "REGLAS DE GROUNDING (obligatorias):\n"
@@ -27,7 +32,7 @@ DIRECTRIZ_GROUNDING = (
 
 
 def crear_agente(nombre: str, prompt: str, tools: list):
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
+    llm = get_chat_model(temperature=0)
     return create_react_agent(
         llm,
         tools,
@@ -43,7 +48,6 @@ def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
 
     resultado = agente.invoke(
         {"messages": [HumanMessage(content=peticion)]},
-        # Cada iteración ReAct son 2 pasos (modelo + tools) + margen.
         config={"recursion_limit": 2 * MAX_ITERACIONES_REACT + 5},
     )
 
@@ -55,6 +59,8 @@ def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
             tools_usadas.append(m.name)
     iteraciones = sum(1 for m in resultado["messages"] if isinstance(m, AIMessage))
     respuesta = resultado["messages"][-1].content
+    if not isinstance(respuesta, str):
+        respuesta = str(respuesta)
 
     registrar_evento(
         "agente_fin",
@@ -66,3 +72,42 @@ def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
         cita_fuentes="fuentes consultadas" in respuesta.lower(),
     )
     return respuesta
+
+
+def estructurar_salida(
+    esquema: type[T],
+    texto: str,
+    *,
+    instruccion: str,
+    nombre: str = "estructurar",
+) -> tuple[T, bool]:
+    """Materializa un contrato Pydantic a partir del texto libre del agente.
+
+    Usa structured output del LLM; si falla, `safe_parse` aplica fallback.
+    Así se puede cambiar el modelo sin corromper el routing del orquestador.
+    """
+    registrar_evento("estructurar_inicio", esquema=esquema.__name__, agente=nombre)
+    try:
+        llm = get_chat_model(temperature=0).with_structured_output(esquema)
+        resultado = llm.invoke(
+            f"{instruccion}\n\n---\nContenido a estructurar:\n{texto}"
+        )
+        if isinstance(resultado, esquema):
+            modelo, ok = resultado, True
+        else:
+            modelo, ok = safe_parse(esquema, resultado)
+        registrar_evento(
+            "estructurar_fin",
+            esquema=esquema.__name__,
+            ok=ok,
+            agente=nombre,
+        )
+        return modelo, ok
+    except Exception as exc:  # noqa: BLE001
+        registrar_evento(
+            "estructurar_error",
+            esquema=esquema.__name__,
+            error=str(exc)[:300],
+            agente=nombre,
+        )
+        return safe_parse(esquema, texto)

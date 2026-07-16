@@ -64,8 +64,9 @@ flowchart TB
 
 ## 2. Capa de exposición (backend-first)
 
-El camino estable de consumo es la **API REST** (`src/api/`), pensada para un frontend
-posterior. El CLI (`main.py`) queda como legado opcional.
+El camino estable de consumo es la **API REST** (`src/api/`). El cliente de referencia
+es Streamlit (`app_streamlit/`), que solo llama HTTP con JWT (sin embeber el grafo ni
+el RAG). El CLI (`main.py`) queda como legado opcional.
 
 | Área | Endpoints | Notas |
 |---|---|---|
@@ -95,8 +96,12 @@ límite de iteraciones (`MAX_ITERACIONES_REACT`) para acotar coste y bucles.
 
 ### 3.3 Estado compartido tipado
 
-El estado del grafo transporta: petición, rol, `alumno_id`, agente destino, borradores,
-veredicto de validación y respuesta final. En API, el `thread_id` de la solicitud permite
+El estado del grafo transporta: petición, rol, `alumno_id`, agente destino, borradores
+legibles y **contratos Pydantic** (`constraints`, `examen`, `veredicto`) serializados
+como dict. El LLM puede cambiar; el routing (p. ej. regenerar vs HITL) usa campos
+tipados (`veredicto.aprobado`), no substrings del texto libre. Si la salida del LLM
+no valida, `safe_parse` aplica un fallback seguro para no corromper la solicitud.
+En API, el `thread_id` de la solicitud permite
 reanudar el HITL entre llamadas HTTP.
 
 ### 3.4 Protocolos para escalar
@@ -235,17 +240,33 @@ sequenceDiagram
 | Persistencia | MySQL (SQLAlchemy) | Usuarios, KB, requests, memoria |
 | Orquestación | LangGraph | Grafo, checkpoint, interrupt HITL |
 | Agentes | LangChain ReAct | Razonamiento + tools |
-| RAG | BM25 + embeddings OpenAI + RRF sobre MySQL | Sin Chroma en el flujo API |
-| LLM | OpenAI configurable (`gpt-4o-mini` por defecto) | Intercambiable |
+| RAG | BM25 + embeddings (OpenAI u Ollama) + RRF sobre MySQL | Filtra por `chunk_embeddings.model` |
+| LLM | Model registry (`LLM_PROFILE`) | OpenAI cloud o Ollama local |
 | Observabilidad | JSONL local + LangSmith opcional | Depuración y coste |
 | Validación | Pydantic | Schemas API y constraints |
 | Pruebas | `scripts/run_test_pipeline.py` + pytest | Smoke y E2E |
+
+### Model registry
+
+`src/llm/registry.py` centraliza chat y embeddings. Perfiles:
+
+| Perfil | Chat | Embeddings |
+|---|---|---|
+| `cloud_openai` (default) | `gpt-4o-mini` | `text-embedding-3-small` |
+| `local_barato` | Ollama `qwen2.5:3b` | Ollama `nomic-embed-text` |
+| `local_calidad` | Ollama `qwen2.5:7b` | Ollama `nomic-embed-text` |
+
+Prioridad de resolución: argumento > env (`LLM_MODEL`, …) > perfil. Ollama usa el endpoint compatible OpenAI (`OLLAMA_BASE_URL`). La búsqueda semántica solo compara embeddings del modelo activo; se pueden almacenar varios modelos en MySQL sin mezclarlos en cosine.
+
+`GET /health` expone la selección activa vía `describe_llm()`.
 
 ## 9. Despliegue y configuración
 
 Variables clave en `.env`:
 
-- `OPENAI_API_KEY`, `LLM_MODEL`, `EMBEDDING_MODEL`
+- `LLM_PROFILE` (`cloud_openai` \| `local_barato` \| `local_calidad`)
+- Overrides opcionales: `LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `OLLAMA_BASE_URL`
+- `OPENAI_API_KEY` (requerido en perfil cloud)
 - `DATABASE_URL` (MySQL remoto)
 - `JWT_SECRET`, `JWT_EXPIRE_MINUTES`
 - `CORS_ORIGINS`

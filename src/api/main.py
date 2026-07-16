@@ -30,4 +30,6 @@ app.include_router(requests.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    from src.llm import describe_llm
+
+    return {"status": "ok", "llm": describe_llm()}

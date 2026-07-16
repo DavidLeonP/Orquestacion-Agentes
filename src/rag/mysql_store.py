@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 
 import numpy as np
-from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 from sqlalchemy.orm import Session, joinedload
 
-from src.config import EMBEDDING_MODEL
 from src.db.models import Chunk
 from src.db.session import SessionLocal
+from src.llm import active_embedding_model, get_embeddings
+
+logger = logging.getLogger("orquestacion.rag")
 
 RRF_K = 60
 
@@ -37,6 +39,7 @@ class RetrieverHibridoMySQL:
         self.db = db or SessionLocal()
         self.chunks: list[dict] = []
         self._embeddings: dict[str, list[float]] = {}
+        self._embedding_model = active_embedding_model()
         self._cargar()
 
     def _cargar(self) -> None:
@@ -56,12 +59,27 @@ class RetrieverHibridoMySQL:
                 "metadatos": c.metadatos or {},
             }
             self.chunks.append(item)
-            if c.embedding and c.embedding.embedding:
+            # Solo vectores del modelo activo (pueden coexistir otros en BD)
+            if (
+                c.embedding
+                and c.embedding.embedding
+                and c.embedding.model == self._embedding_model
+            ):
                 self._embeddings[c.chunk_uid] = c.embedding.embedding
+
+        if self.chunks and not self._embeddings:
+            logger.warning(
+                "Sin embeddings del modelo '%s' para user=%s indice=%s; "
+                "solo BM25. Reprocesa la KB si quieres búsqueda semántica.",
+                self._embedding_model,
+                self.user_id,
+                self.indice,
+            )
+
         self.bm25 = (
             BM25Okapi([_tokenizar(c["texto"]) for c in self.chunks]) if self.chunks else None
         )
-        self._embedder = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+        self._embedder = get_embeddings()
 
     def close(self) -> None:
         if self._own_session:
@@ -105,8 +123,4 @@ def obtener_retriever(user_id: int, indice: str) -> RetrieverHibridoMySQL:
 
 
 def invalidar_cache_retriever(user_id: int | None = None) -> None:
-    if user_id is None:
-        obtener_retriever.cache_clear()
-        return
-    # lru_cache no permite borrar por clave parcial; limpiamos todo
     obtener_retriever.cache_clear()

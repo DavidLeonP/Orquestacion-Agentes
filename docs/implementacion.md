@@ -141,7 +141,8 @@ Comportamiento relevante:
 
 ## 5. API HTTP
 
-Servicio: `src.api:app` (Uvicorn en puerto **8000**).
+Servicio: `src.legacy_chat_api:app` (Uvicorn en puerto **8000**).
+API JWT completa: `src.api.main:app`.
 
 Swagger interactivo: `http://<host>:8000/docs`
 
@@ -237,7 +238,7 @@ La imagen se **construye en local** (Docker Desktop) y se transfiere al VPS con 
 - Base: `python:3.13-slim`
 - Instala dependencias de `requirements.txt`
 - Expone `8000`
-- CMD: `uvicorn src.api:app --host 0.0.0.0 --port 8000`
+- CMD: `uvicorn src.legacy_chat_api:app --host 0.0.0.0 --port 8000`
 - Volumen de datos de ejemplo: `data/` montado en solo lectura
 - Persistencia: volumen `asistente_storage` → `/app/storage`
 
@@ -362,7 +363,9 @@ python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 Para API local sin contenedor:
 
 ```bash
-uvicorn src.api:app --reload --port 8000
+uvicorn src.legacy_chat_api:app --reload --port 8000
+# API JWT + knowledge:
+# uvicorn src.api.main:app --reload --port 8000
 ```
 
 ## 10. Limitaciones conocidas del MVP
