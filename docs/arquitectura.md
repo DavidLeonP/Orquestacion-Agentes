@@ -29,7 +29,8 @@ Según la taxonomía de Sapkota et al., este sistema es **Agentic AI**, no un AI
 
 ```mermaid
 flowchart TB
-    Cliente[Cliente_API_o_Frontend] --> API[FastAPI_JWT]
+    ST[Streamlit_UI] --> API[FastAPI_JWT]
+    Cliente[Postman_o_scripts] --> API
     API --> Auth[Auth_Users]
     API --> Know[Knowledge_Ingest]
     API --> Req[Requests_Orquestador]
@@ -60,20 +61,25 @@ flowchart TB
     Chunks --> MySQL
     Emb --> MySQL
     Orq --> Mem[Memoria_MySQL]
+    Orq --> Registry[Model_registry]
+    Know --> Registry
 ```
 
 ## 2. Capa de exposición (backend-first)
 
 El camino estable de consumo es la **API REST** (`src/api/`). El cliente de referencia
 es Streamlit (`app_streamlit/`), que solo llama HTTP con JWT (sin embeber el grafo ni
-el RAG). El CLI (`main.py`) queda como legado opcional.
+el RAG). El CLI (`main.py`) y `src/legacy_chat_api.py` quedan como legado opcional.
 
 | Área | Endpoints | Notas |
 |---|---|---|
 | Auth | `POST /auth/register`, `/login`, `GET /auth/me` | JWT Bearer; roles `docente` / `alumno` |
 | Conocimiento | `/knowledge/...` | CRUD docs + ingest/reprocess scoped al usuario |
 | Solicitudes | `POST/GET /requests`, `/approve`, `/events` | Orquestador async + HITL |
-| Salud | `GET /health` | Liveness |
+| Salud | `GET /health` | Liveness + `llm` del registry |
+
+**UI Streamlit** (`streamlit run app_streamlit/Home.py`): Home (login), Conocimiento,
+Asistente (polling), Historial, Aprobaciones (docente). Variable `STREAMLIT_API_BASE_URL`.
 
 Aislamiento: **todo filtrado por `user_id` del JWT**. Un usuario no ve documentos,
 chunks ni solicitudes de otro.
@@ -131,7 +137,8 @@ La fuente de verdad del conocimiento **no** es el filesystem ni Chroma en el flu
 | Vectores | `chunk_embeddings` | Embedding JSON + modelo/dims |
 
 Ingesta a demanda: `POST /knowledge/ingest` o `/documents/{id}/reprocess`
-(chunking → OpenAI embeddings → upsert MySQL).
+(chunking → `get_embeddings()` del registry → upsert MySQL). Embeddings de distintos
+modelos pueden coexistir; la búsqueda semántica filtra por `chunk_embeddings.model`.
 
 ### 4.2 RAG multi-índice (por usuario)
 
@@ -194,7 +201,7 @@ pipeline de ingest).
 
 ### 6.3 Rubric Agent
 
-- **Rol**: valida material (`VEREDICTO: APROBADO` / `CAMBIOS REQUERIDOS`) o genera rúbricas.
+- **Rol**: valida material con contrato `VeredictoValidacion` (`aprobado` bool) o genera rúbricas.
 - **Tools**: `buscar_rubricas`, `buscar_curriculo`.
 
 ### 6.4 Tutor Agent
@@ -242,9 +249,10 @@ sequenceDiagram
 | Agentes | LangChain ReAct | Razonamiento + tools |
 | RAG | BM25 + embeddings (OpenAI u Ollama) + RRF sobre MySQL | Filtra por `chunk_embeddings.model` |
 | LLM | Model registry (`LLM_PROFILE`) | OpenAI cloud o Ollama local |
+| UI | Streamlit (`app_streamlit/`) | Cliente HTTP JWT, sin embeber el grafo |
 | Observabilidad | JSONL local + LangSmith opcional | Depuración y coste |
-| Validación | Pydantic | Schemas API y constraints |
-| Pruebas | `scripts/run_test_pipeline.py` + pytest | Smoke y E2E |
+| Validación | Pydantic | Schemas API y contratos entre agentes |
+| Pruebas | `scripts/run_test_pipeline.py` + pytest | Smoke y contratos |
 
 ### Model registry
 
@@ -270,6 +278,7 @@ Variables clave en `.env`:
 - `DATABASE_URL` (MySQL remoto)
 - `JWT_SECRET`, `JWT_EXPIRE_MINUTES`
 - `CORS_ORIGINS`
+- `STREAMLIT_API_BASE_URL` (cliente UI)
 - LangSmith opcional: `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`, `LANGCHAIN_PROJECT`
 
 Inicialización: `python scripts/init_db.py`. Seed demo: `python scripts/seed_demo_kb.py`.

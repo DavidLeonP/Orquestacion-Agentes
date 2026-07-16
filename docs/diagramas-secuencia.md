@@ -1,6 +1,9 @@
 # Diagramas de secuencia
 
 Flujos principales del backend (API REST + LangGraph + MySQL).  
+El cliente de referencia es **Streamlit** (`app_streamlit/`), que solo dispara estas
+llamadas HTTP; también aplican a Postman/scripts.
+
 Complementa [arquitectura.md](arquitectura.md) y el modelo C4 en [c4/](c4/).
 
 ## 1. Autenticación (registro y login)
@@ -46,7 +49,7 @@ sequenceDiagram
     participant C as Cliente
     participant API as FastAPI_Knowledge
     participant Pipe as mysql_pipeline
-    participant Emb as OpenAI_Embeddings
+    participant Emb as Embeddings_registry
     participant DB as MySQL
 
     C->>API: POST /knowledge/apuntes/documents JWT

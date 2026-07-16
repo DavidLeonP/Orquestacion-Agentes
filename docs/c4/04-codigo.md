@@ -15,8 +15,8 @@ flowchart LR
     rubric --> finalizar
     tutor --> finalizar
     exam_generator --> validar
-    validar -->|APROBADO o max intentos| aprobacion_docente
-    validar -->|CAMBIOS| exam_generator
+    validar -->|veredicto.aprobado o max intentos| aprobacion_docente
+    validar -->|cambios requeridos| exam_generator
     finalizar --> END([END])
     aprobacion_docente --> END
 ```
@@ -29,22 +29,23 @@ flowchart LR
 ```mermaid
 flowchart TD
     Doc[Document pending] --> Split[RecursiveCharacterTextSplitter]
-    Split --> Embed[OpenAIEmbeddings.embed_documents]
+    Split --> Embed["get_embeddings registry"]
     Embed --> Del[Borrar chunks previos del document_id]
     Del --> InsC[INSERT chunks]
-    InsC --> InsE[INSERT chunk_embeddings]
+    InsC --> InsE["INSERT chunk_embeddings model dims"]
     InsE --> Idx[status indexed]
     Idx --> Cache[invalidar_cache_retriever]
 ```
 
-**Archivo:** `src/ingestion/mysql_pipeline.py`
+**Archivo:** `src/ingestion/mysql_pipeline.py`  
+**Embeddings:** `src/llm/registry.py` (`active_embedding_model`)
 
 ## 4.3 Retriever híbrido
 
 ```mermaid
 flowchart TD
     Q[consulta] --> Lex[BM25 ranking]
-    Q --> Sem[embed_query + cosine]
+    Q --> Sem["embed_query + cosine filtro model"]
     Lex --> RRF[RRF fusion k=60]
     Sem --> RRF
     RRF --> TopK[top-k chunks con metadatos fuente]
@@ -57,16 +58,18 @@ flowchart TD
 
 | Paquete | Rol |
 |---------|-----|
-| `src/api/` | Contenedor HTTP |
+| `src/api/` | Contenedor HTTP JWT |
+| `src/llm/` | Model registry (OpenAI / Ollama) |
 | `src/db/` | Modelos y sesión SQLAlchemy |
 | `src/orchestrator/` | Grafo LangGraph |
-| `src/agents/` | Prompts y factories ReAct |
-| `src/rag/` | Contexto user_id + retriever + tools |
+| `src/agents/` | Prompts, ReAct y contratos Pydantic |
+| `src/rag/` | Contexto user_id + retriever MySQL + tools |
 | `src/ingestion/` | Indexación a MySQL |
 | `src/memory/` | LTM MySQL / JSON legacy |
 | `src/observability/` | Trazas JSONL + LangSmith |
+| `app_streamlit/` | UI cliente HTTP |
 | `scripts/` | Ops y pipeline de pruebas |
-| `tests/` | Pytest smoke API |
+| `tests/` | Pytest (registry, contratos, smoke API) |
 
 ## 4.5 Contrato de una solicitud (estados)
 

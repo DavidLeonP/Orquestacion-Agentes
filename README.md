@@ -1,81 +1,82 @@
 # Asistente IA para Educación
 
-Sistema multi-agente (Agentic AI) que asiste a docentes y alumnado de un
-instituto, construido con LangChain + LangGraph. Cuatro agentes especializados
-(Curriculum, Exam Generator, Rubric y Tutor) coordinados por un orquestador
-supervisor, apoyados en la base documental del centro mediante RAG multi-índice
-con búsqueda híbrida (BM25 + embeddings).
+Sistema multi-agente (Agentic AI) que asiste a docentes y alumnado, con
+**RAG privado por usuario en MySQL**, **API REST JWT** y **UI Streamlit**.
+Cuatro agentes (Curriculum, Exam Generator, Rubric, Tutor) coordinados por
+LangGraph; LLM/embeddings vía **model registry** (OpenAI u Ollama).
 
 Documentación:
 
 - [docs/arquitectura.md](docs/arquitectura.md) — directrices de orquestación, conocimiento y aprendizaje
-- [docs/implementacion.md](docs/implementacion.md) — API, Docker, despliegue y Postman
+- [docs/implementacion.md](docs/implementacion.md) — API JWT, Streamlit, Docker, VPS
+- [docs/diagramas-secuencia.md](docs/diagramas-secuencia.md) — flujos de secuencia
+- [docs/c4/](docs/c4/) — modelo C4
 - [docs/README.md](docs/README.md) — índice de docs
 
 ## Estructura
 
 ```
-data/                  Base documental del instituto (un índice por carpeta)
+data/                  Material de ejemplo / seed (CLI legado)
   apuntes/  examenes/  rubricas/  curriculo/
 src/
-  ingestion/           Pipeline de ingesta e indexación
-  rag/                 Retriever híbrido (BM25 + Chroma + RRF) y tools RAG
-  agents/              Los 4 agentes especializados (ReAct) y schemas
-  orchestrator/        Grafo supervisor de LangGraph
-  memory/              Memoria de largo plazo (feedback, perfiles, histórico)
   api/                 API JWT (auth, knowledge, requests, HITL)
   llm/                 Model registry (OpenAI / Ollama)
+  ingestion/           Pipeline MySQL (+ Chroma legado)
+  rag/                 Retriever MySQL híbrido + tools RAG
+  agents/              Los 4 agentes especializados (ReAct) y schemas
+  orchestrator/        Grafo supervisor de LangGraph
+  memory/              Memoria de largo plazo
 app_streamlit/         UI Streamlit (cliente HTTP de la API)
-docs/arquitectura.md   Documento de arquitectura
-main.py                CLI de demostración
+docs/                  Arquitectura, implementación, C4, secuencias
+main.py                CLI de demostración (legado)
+scripts/               init_db, seed_demo_kb, pipeline, remote.sh
 ```
 
-## Puesta en marcha
+## Puesta en marcha (recomendado)
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+# Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env      # añade tu OPENAI_API_KEY
+cp .env.example .env      # DATABASE_URL, JWT_SECRET, OPENAI_API_KEY o LLM_PROFILE
+python scripts/init_db.py
+python scripts/seed_demo_kb.py
 ```
 
-1. Construir los índices RAG (incluye datos de ejemplo de Tecnología 3º ESO):
+```bash
+# Terminal 1 — API JWT
+uvicorn src.api.main:app --reload --port 8000
+
+# Terminal 2 — UI
+streamlit run app_streamlit/Home.py
+```
+
+Abre `http://localhost:8501`. Demo: `demo@instituto.local` / `demo1234`.
+
+Swagger: `http://127.0.0.1:8000/docs` · Health: `GET /health`.
+
+### CLI legado (Chroma / `data/`)
 
 ```bash
 python main.py ingestar
-```
-
-2. Ejecutar los escenarios de demostración:
-
-```bash
 python main.py demo
-```
-
-3. O hacer peticiones directas:
-
-```bash
 python main.py docente "Genera un examen de 6 preguntas sobre electricidad para 3º ESO"
-python main.py docente "Estructura la unidad de circuitos en sesiones"
 python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 ```
 
 ## UI Streamlit
 
-Cliente HTTP de la API JWT (no embebe LangGraph ni RAG). Requiere la API en marcha:
+Cliente HTTP de la API JWT (no embebe LangGraph ni RAG):
 
-```bash
-# Terminal 1 — API
-uvicorn src.api.main:app --reload --port 8000
+| Página | Función |
+|--------|---------|
+| Home | Login / registro |
+| Conocimiento | CRUD docs + ingest |
+| Asistente | Nueva petición + polling |
+| Historial | Solicitudes y eventos |
+| Aprobaciones | HITL de exámenes (solo docente) |
 
-# Terminal 2 — UI
-pip install -r requirements.txt   # incluye streamlit + httpx
-streamlit run app_streamlit/Home.py
-```
-
-Abre `http://localhost:8501`. Demo docente: `demo@instituto.local` / `demo1234`.
-
-Páginas: login/registro, Conocimiento (CRUD + ingest), Asistente (polling de `/requests`), Historial y Aprobaciones HITL (solo docente).
-
-Variable opcional: `STREAMLIT_API_BASE_URL` (default `http://127.0.0.1:8000`).
+Variable: `STREAMLIT_API_BASE_URL` (default `http://127.0.0.1:8000`).
 
 ## Model registry (OpenAI / Ollama)
 
@@ -128,7 +129,7 @@ Configura en `.env` las variables `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLO
 | `./scripts/remote.sh push-image` | Transfiere la imagen ya construida al VPS |
 | `./scripts/remote.sh rsync` | Sincroniza código y `data/` al servidor (sin imagen) |
 | `./scripts/remote.sh restart` | Sube `.env` y recrea el contenedor |
-| `./scripts/remote.sh health` | Comprueba `GET /api/v1/health` en la API pública |
+| `./scripts/remote.sh health` | Comprueba health en la API pública (`/health` o `/api/v1/health` según CMD) |
 
 Flujo habitual tras cambiar código:
 
@@ -147,7 +148,10 @@ Compose local (sin VPS):
 
 ```bash
 docker compose up -d --build
+# Si el contenedor sirve la API JWT:
+curl http://localhost:8000/health
+# Si aún apunta al legado:
 curl http://localhost:8000/api/v1/health
 ```
 
-Detalle técnico del despliegue: [docs/implementacion.md](docs/implementacion.md) §7.
+Detalle técnico: [docs/implementacion.md](docs/implementacion.md) §§7–8.

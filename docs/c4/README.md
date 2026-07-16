@@ -1,6 +1,6 @@
 # Arquitectura C4
 
-Modelo C4 del **Asistente IA para Educación** (backend API + MySQL + orquestación multi-agente).
+Modelo C4 del **Asistente IA para Educación** (API JWT + Streamlit + MySQL + orquestación multi-agente).
 
 | Nivel | Documento | Pregunta que responde |
 |-------|-----------|------------------------|
@@ -12,6 +12,7 @@ Modelo C4 del **Asistente IA para Educación** (backend API + MySQL + orquestaci
 Documentación relacionada:
 
 - [../arquitectura.md](../arquitectura.md) — directrices y stack
+- [../implementacion.md](../implementacion.md) — arranque API + Streamlit
 - [../diagramas-secuencia.md](../diagramas-secuencia.md) — flujos temporales
 
 Los diagramas usan sintaxis **Mermaid C4** (visibles en GitHub, GitLab, muchos visores Markdown y en Cursor).
