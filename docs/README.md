@@ -20,4 +20,8 @@ streamlit run app_streamlit/Home.py
 
 Demo: `demo@instituto.local` / `demo1234` (tras `python scripts/seed_demo_kb.py`).
 
+Compose (API `:8000` + UI `:8501`): `docker compose up -d --build`.
+
+Producción (VPS): `./scripts/remote.sh deploy` → UI `http://SSH_HOST:8501`, API `http://SSH_HOST:8000`.
+
 Material de origen en `Documentacion/` (requerimiento, base de definición y papers PDF).

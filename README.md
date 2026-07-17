@@ -55,6 +55,14 @@ Abre `http://localhost:8501`. Demo: `demo@instituto.local` / `demo1234`.
 
 Swagger: `http://127.0.0.1:8000/docs` · Health: `GET /health`.
 
+### Compose local (API + UI)
+
+```bash
+docker compose up -d --build
+curl http://localhost:8000/health   # API JWT
+open http://localhost:8501          # UI Streamlit
+```
+
 ### CLI legado (Chroma / `data/`)
 
 ```bash
@@ -70,13 +78,18 @@ Cliente HTTP de la API JWT (no embebe LangGraph ni RAG):
 
 | Página | Función |
 |--------|---------|
-| Home | Login / registro |
+| Home | Login / registro; menú y **modelo activo** tras autenticar |
 | Conocimiento | CRUD docs + ingest |
-| Asistente | Nueva petición + polling |
-| Historial | Solicitudes y eventos |
+| Asistente | Nueva petición + progreso por pasos (polling) |
+| Historial | Solicitudes y eventos legibles |
 | Aprobaciones | HITL de exámenes (solo docente) |
 
-Variable: `STREAMLIT_API_BASE_URL` (default `http://127.0.0.1:8000`).
+Tras el login, el sidebar muestra el modelo activo (`GET /health`) y el menú de navegación.
+Al generar un examen, el Asistente muestra pasos (“Clasificando…”, “Generando…”, etc.) y
+puede quedar en **pendiente de aprobación** (no es un cuelgue).
+
+Variable: `STREAMLIT_API_BASE_URL` (local `http://127.0.0.1:8000`; en Docker/VPS la red
+interna usa el nombre del contenedor API).
 
 ## Model registry (OpenAI / Ollama)
 
@@ -120,16 +133,26 @@ Toda respuesta cita las fuentes internas consultadas; los agentes no responden
 
 Requisitos en tu Mac: [Docker Desktop](https://www.docker.com/products/docker-desktop/) en ejecución y `sshpass` (`brew install sshpass`).
 
-Configura en `.env` las variables `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLOY_PATH`, `API_BASE_URL` y `DOCKER_IMAGE` (ver `.env.example`).
+Configura en `.env` las variables `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLOY_PATH`,
+`API_BASE_URL` y `DOCKER_IMAGE` (ver `.env.example`).
+
+`./scripts/remote.sh deploy` publica **dos contenedores** desde la misma imagen:
+
+| Contenedor | Puerto | Rol |
+|---|---|---|
+| `asistente-ia-educacion` | `8000` | API JWT (`src.api.main:app`) |
+| `asistente-ia-ui` | `8501` | UI Streamlit |
+
+En el VPS, la UI apunta a la API por red Docker (`STREAMLIT_API_BASE_URL=http://asistente-ia-educacion:8000`).
 
 | Comando | Qué hace |
 |---|---|
-| `./scripts/remote.sh deploy` | Build local → rsync → sube imagen al VPS → reinicia contenedor |
+| `./scripts/remote.sh deploy` | Build local → rsync → sube imagen → reinicia **API + UI** |
 | `./scripts/remote.sh build` | Solo construye la imagen Docker en local |
 | `./scripts/remote.sh push-image` | Transfiere la imagen ya construida al VPS |
 | `./scripts/remote.sh rsync` | Sincroniza código y `data/` al servidor (sin imagen) |
-| `./scripts/remote.sh restart` | Sube `.env` y recrea el contenedor |
-| `./scripts/remote.sh health` | Comprueba health en la API pública (`/health` o `/api/v1/health` según CMD) |
+| `./scripts/remote.sh restart` | Sube `.env` y recrea API (`:8000`) + UI (`:8501`) |
+| `./scripts/remote.sh health` | Comprueba `GET /health` y HTTP de la UI en `:8501` |
 
 Flujo habitual tras cambiar código:
 
@@ -138,20 +161,17 @@ Flujo habitual tras cambiar código:
 ./scripts/remote.sh health
 ```
 
-Solo cambios de configuración (`.env`):
+Solo cambios de configuración (`.env`) o de scripts de arranque:
 
 ```bash
 ./scripts/remote.sh restart
 ```
 
-Compose local (sin VPS):
+URLs típicas en el VPS (sustituye el host):
 
-```bash
-docker compose up -d --build
-# Si el contenedor sirve la API JWT:
-curl http://localhost:8000/health
-# Si aún apunta al legado:
-curl http://localhost:8000/api/v1/health
-```
+- UI: `http://SSH_HOST:8501`
+- API: `http://SSH_HOST:8000`
+- Swagger: `http://SSH_HOST:8000/docs`
+- Health: `GET http://SSH_HOST:8000/health`
 
 Detalle técnico: [docs/implementacion.md](docs/implementacion.md) §§7–8.

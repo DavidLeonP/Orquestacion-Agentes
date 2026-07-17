@@ -17,7 +17,7 @@ COPY . .
 
 RUN mkdir -p storage/chroma storage/chunks storage/memoria
 
-EXPOSE 8000
+EXPOSE 8000 8501
 
-# Solo arranca la API. La ingesta se lanza con POST /api/v1/ingestar.
-CMD ["uvicorn", "src.legacy_chat_api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Por defecto API JWT. La UI Streamlit se lanza con otro contenedor/CMD.
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

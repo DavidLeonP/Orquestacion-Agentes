@@ -47,7 +47,10 @@ Rel(scripts, api, "TestClient / HTTP", "Pipeline de pruebas")
 
 ## Notas de despliegue
 
-- API y orquestador corren **en el mismo proceso** (Uvicorn).
-- Streamlit es un **proceso aparte** (`:8501`); solo habla HTTP con la API.
+- API y orquestador corren **en el mismo proceso** (Uvicorn, contenedor API).
+- Streamlit es un **contenedor/proceso aparte** (`:8501`); solo habla HTTP con la API.
+- En VPS / Compose ambos comparten imagen Docker y red interna; la UI usa
+  `STREAMLIT_API_BASE_URL` apuntando al nombre del contenedor/servicio API.
 - MySQL es **remoto** (`DATABASE_URL`).
+- Script: `./scripts/remote.sh deploy|restart|health` (API + UI).
 - Escalado futuro: workers separados + checkpointer durable compartido + cola (Redis/Celery).

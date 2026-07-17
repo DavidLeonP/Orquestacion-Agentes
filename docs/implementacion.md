@@ -16,7 +16,7 @@ La arquitectura conceptual está en [arquitectura.md](arquitectura.md).
 | Memoria | Checkpointer (sesión) + MySQL (LTM) | LangGraph + `src/memory/` |
 | Auth | JWT + bcrypt | `src/api/security.py` |
 | CLI legado | `main.py` (+ Chroma opcional) | `main.py`, `src/legacy_chat_api.py` |
-| Contenedor | Docker | `Dockerfile`, `docker-compose.yml` |
+| Contenedor | Docker (API + UI) | `Dockerfile`, `docker-compose.yml`, `scripts/remote.sh` |
 
 ## 2. Estructura del repositorio
 
@@ -25,7 +25,7 @@ Orquestacion-Agentes/
 ├── app_streamlit/             # UI Streamlit (cliente de la API JWT)
 │   ├── Home.py
 │   ├── pages/                 # Conocimiento, Asistente, Historial, Aprobaciones
-│   └── lib/                   # api_client, session, ui
+│   └── lib/                   # api_client, session, ui, labels
 ├── data/                      # Material de ejemplo / seed (CLI legado)
 ├── docs/
 │   ├── arquitectura.md
@@ -42,11 +42,11 @@ Orquestacion-Agentes/
 │   ├── rag/                   # mysql_store, tools, chroma_client (legado)
 │   ├── memory/
 │   ├── orchestrator/graph.py
-│   ├── legacy_chat_api.py     # API chat legado /api/v1/*
+│   ├── legacy_chat_api.py     # API chat legado /api/v1/* (opcional)
 │   └── config.py
 ├── tests/
-├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile                 # CMD = API JWT; UI se lanza con otro CMD/contenedor
+├── docker-compose.yml         # servicios asistente (:8000) + ui (:8501)
 ├── main.py
 ├── requirements.txt
 └── .env.example
@@ -166,7 +166,8 @@ Aislamiento: todo filtrado por `user_id` del JWT.
 ### 5.3 API legado
 
 `src.legacy_chat_api:app` — rutas `/api/v1/health`, `/chat`, `/approve`, `/ingestar`.  
-Docker Compose aún puede apuntar aquí; el camino recomendado en desarrollo es `src.api.main:app`.
+Queda como camino opcional (CLI / demos antiguas). El **Dockerfile, Compose y VPS**
+sirven la API JWT (`src.api.main:app`).
 
 ## 6. UI Streamlit
 
@@ -182,13 +183,27 @@ streamlit run app_streamlit/Home.py
 
 | Página | Función |
 |---|---|
-| Home | Login / registro + sidebar (rol, modelo activo) |
+| Home | Login / registro; hub post-login con menú y modelo activo |
 | Conocimiento | CRUD docs, ingest, chunks |
-| Asistente | `POST /requests` + polling |
-| Historial | Lista + eventos |
+| Asistente | `POST /requests` + polling con pasos legibles y tiempo |
+| Historial | Lista + eventos en lenguaje natural |
 | Aprobaciones | HITL (solo docente) |
 
-`STREAMLIT_API_BASE_URL` (default `http://127.0.0.1:8000`).
+UX relevante:
+
+- Tras autenticar, el **sidebar** muestra modelo activo (`GET /health`) y navegación.
+- El polling del Asistente explica que un examen puede tardar 1–2 min y lista pasos
+  (`router` → `exam_generator` → `validar` → …).
+- Estado `waiting_approval` no es un fallo: el borrador espera decisión en **Aprobaciones**.
+
+Módulos: `app_streamlit/lib/` (`api_client`, `session`, `ui`, `labels`).
+
+`STREAMLIT_API_BASE_URL`:
+
+| Entorno | Valor típico |
+|---|---|
+| Local (venv) | `http://127.0.0.1:8000` |
+| Compose / VPS (red Docker) | `http://asistente:8000` o `http://asistente-ia-educacion:8000` |
 
 ## 7. Variables de entorno
 
@@ -204,7 +219,10 @@ Ver `.env.example`. Claves:
 | `OPENAI_API_KEY` | Perfil cloud / provider openai |
 | `STREAMLIT_API_BASE_URL` | Base URL del cliente Streamlit |
 | `LANGCHAIN_*` | LangSmith opcional |
-| `SSH_*`, `DEPLOY_*`, `API_BASE_URL`, `DOCKER_IMAGE` | Despliegue VPS |
+| `SSH_*`, `DEPLOY_PATH`, `API_BASE_URL`, `DOCKER_IMAGE` | Despliegue VPS |
+| `CONTAINER_NAME`, `UI_CONTAINER_NAME`, `DOCKER_NETWORK` | Nombres de contenedores / red en VPS |
+
+Dependencias de auth en imagen: `python-jose`, `passlib`, `bcrypt` (ver `requirements.txt`).
 
 Bootstrap:
 
@@ -217,21 +235,47 @@ python scripts/seed_demo_kb.py
 
 ### 8.1 Imagen / Compose
 
-- Base: `python:3.13-slim`, puerto `8000`
-- CMD actual del Dockerfile: suele ser la API legado (`src.legacy_chat_api:app`)
-- Para JWT en local preferir Uvicorn directo (sección 5)
+- Base: `python:3.13-slim`
+- CMD por defecto: API JWT `uvicorn src.api.main:app --host 0.0.0.0 --port 8000`
+- Puertos de imagen: `8000` (API) y `8501` (UI, otro contenedor/CMD)
+- Compose (`docker-compose.yml`): dos servicios en red `asistente-net`
+
+| Servicio | Contenedor | Puerto | Memoria | Comando |
+|---|---|---|---|---|
+| `asistente` | `asistente-ia-educacion` | `8000` | 700m | API JWT |
+| `ui` | `asistente-ia-ui` | `8501` | 400m | `streamlit run app_streamlit/Home.py` |
 
 ```bash
 docker compose up -d --build
-# Health legado: GET /api/v1/health
-# Health JWT:    GET /health  (si el CMD apunta a src.api.main:app)
+curl http://localhost:8000/health
+# UI: http://localhost:8501
 ```
+
+En Compose, `STREAMLIT_API_BASE_URL=http://asistente:8000` (nombre del servicio).
 
 ### 8.2 Despliegue remoto
 
 Helper: `./scripts/remote.sh deploy|build|push-image|rsync|restart|health`.
 
-El VPS tiene poca RAM: build local → `docker save | ssh docker load`. Detalle de host/rutas en `.env` (`SSH_HOST`, `DEPLOY_PATH`, …).
+El VPS tiene poca RAM: **build local** → `docker save | ssh docker load`.  
+`deploy` / `restart` recrean **API + UI** en la red `asistente-net` y fuerzan
+`STREAMLIT_API_BASE_URL=http://asistente-ia-educacion:8000` en el contenedor UI.
+
+```bash
+./scripts/remote.sh deploy
+./scripts/remote.sh health
+# API: GET http://SSH_HOST:8000/health
+# UI:  http://SSH_HOST:8501  (HTTP 200)
+```
+
+Solo `.env` o arranque (sin rebuild):
+
+```bash
+./scripts/remote.sh restart
+```
+
+Variables de despliegue: `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLOY_PATH`,
+`API_BASE_URL`, `DOCKER_IMAGE`, `CONTAINER_NAME`, `UI_CONTAINER_NAME`, `DOCKER_NETWORK`.
 
 ## 9. Pruebas
 
@@ -261,9 +305,11 @@ Usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
 
 - PDFs vía API: hoy el alta es texto (`content_text`); OCR no incluido.
 - Examen aprobado se guarda en memoria LTM; reindexación automática en `examenes` pendiente.
-- Checkpointer `MemorySaver` in-process: se pierde al reiniciar el proceso API.
-- Un worker Uvicorn; cargas concurrentes pesadas no recomendadas en VPS pequeño.
-- Docker Compose puede seguir sirviendo la API legado hasta alinear el CMD con `src.api.main:app`.
+- Checkpointer `MemorySaver` in-process: se pierde al reiniciar el proceso API (HITL
+  entre reinicios no se reanuda).
+- Un worker Uvicorn; cargas concurrentes pesadas no recomendadas en VPS pequeño
+  (API ~700m + UI ~400m).
+- Streamlit no se sirve detrás de TLS/reverse proxy en el script actual (HTTP plano).
 
 ## 12. Relación con la documentación de arquitectura
 

@@ -14,3 +14,6 @@ sqlalchemy>=2.0
 pymysql>=1.1
 httpx>=0.27
 streamlit>=1.40
+python-jose>=3.3
+passlib>=1.7
+bcrypt>=4.0,<4.1

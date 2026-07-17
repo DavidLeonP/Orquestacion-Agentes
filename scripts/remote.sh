@@ -7,8 +7,8 @@
 #   ./scripts/remote.sh build           # solo construye la imagen en local
 #   ./scripts/remote.sh push-image      # sube la imagen ya construida al VPS
 #   ./scripts/remote.sh rsync           # sincroniza código y data/ al VPS
-#   ./scripts/remote.sh restart         # sube .env y recrea el contenedor
-#   ./scripts/remote.sh health          # GET API_BASE_URL/api/v1/health
+#   ./scripts/remote.sh restart         # sube .env y recrea API + UI
+#   ./scripts/remote.sh health          # GET API_BASE_URL/health (+ UI :8501)
 #   ./scripts/remote.sh ssh 'hostname'  # comando remoto arbitrario
 set -euo pipefail
 
@@ -31,7 +31,10 @@ set +a
 : "${SSH_PASSWORD:?SSH_PASSWORD no definido en .env}"
 : "${DEPLOY_PATH:=/opt/asistente-ia}"
 : "${CONTAINER_NAME:=asistente-ia-educacion}"
+: "${UI_CONTAINER_NAME:=asistente-ia-ui}"
 : "${DOCKER_IMAGE:=asistente-ia_asistente:latest}"
+: "${DOCKER_NETWORK:=asistente-net}"
+: "${STREAMLIT_API_BASE_URL:=http://${CONTAINER_NAME}:8000}"
 
 SSHPASS_BIN="$(command -v sshpass || true)"
 if [[ -z "$SSHPASS_BIN" ]]; then
@@ -94,18 +97,31 @@ upload_env() {
 
 restart_container() {
   upload_env
-  echo "==> Recreando contenedor ${CONTAINER_NAME} en ${SSH_HOST}..."
-  remote_ssh "cd ${DEPLOY_PATH} && docker rm -f ${CONTAINER_NAME} 2>/dev/null || true; \
-    set -a && . ./.env && set +a; \
+  echo "==> Recreando API (${CONTAINER_NAME}) y UI (${UI_CONTAINER_NAME}) en ${SSH_HOST}..."
+  remote_ssh "cd ${DEPLOY_PATH} && \
+    docker network create ${DOCKER_NETWORK} 2>/dev/null || true; \
+    docker rm -f ${CONTAINER_NAME} ${UI_CONTAINER_NAME} 2>/dev/null || true; \
     docker run -d --name ${CONTAINER_NAME} --restart unless-stopped --memory 700m \
+      --network ${DOCKER_NETWORK} \
       -p 8000:8000 \
-      -e OPENAI_API_KEY -e LLM_MODEL -e EMBEDDING_MODEL \
-      -e LANGCHAIN_TRACING_V2 -e LANGCHAIN_API_KEY -e LANGCHAIN_PROJECT \
-      -e DATABASE_URL -e JWT_SECRET -e JWT_EXPIRE_MINUTES -e CORS_ORIGINS \
-      -e LOG_LEVEL -e LOG_VERBOSE \
+      --env-file ${DEPLOY_PATH}/.env \
       -v ${DEPLOY_PATH}/data:/app/data:ro \
       -v asistente-ia_asistente_storage:/app/storage \
-      ${DOCKER_IMAGE} && sleep 5 && curl -sS http://127.0.0.1:8000/api/v1/health"
+      ${DOCKER_IMAGE} && \
+    docker run -d --name ${UI_CONTAINER_NAME} --restart unless-stopped --memory 400m \
+      --network ${DOCKER_NETWORK} \
+      -p 8501:8501 \
+      --env-file ${DEPLOY_PATH}/.env \
+      -e STREAMLIT_API_BASE_URL=http://${CONTAINER_NAME}:8000 \
+      ${DOCKER_IMAGE} \
+      streamlit run app_streamlit/Home.py \
+        --server.port=8501 \
+        --server.address=0.0.0.0 \
+        --server.headless=true \
+        --browser.gatherUsageStats=false && \
+    sleep 10 && \
+    echo -n 'API: ' && curl -sS http://127.0.0.1:8000/health && echo && \
+    echo -n 'UI:  ' && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8501/ && echo"
 }
 
 cmd="${1:-}"
@@ -134,28 +150,35 @@ case "$cmd" in
     restart_container
     echo ""
     echo "==> Despliegue completado. Comprueba: $0 health"
+    echo "    UI: http://${SSH_HOST}:8501"
     ;;
   health)
-    curl -sS "${API_BASE_URL:-http://${SSH_HOST}:8000}/api/v1/health"; echo
+    echo -n "API: "
+    curl -sS "${API_BASE_URL:-http://${SSH_HOST}:8000}/health"; echo
+    echo -n "UI:  "
+    curl -sS -o /dev/null -w "%{http_code}" "http://${SSH_HOST}:8501/"; echo
     ;;
   *)
     cat <<EOF
 Uso: $0 <comando>
 
-  deploy          Build local + rsync + push imagen + reinicia contenedor (flujo completo)
+  deploy          Build local + rsync + push imagen + reinicia API y UI
   build           Construye la imagen Docker en local
   push-image      Sube la imagen local al VPS (docker save | ssh docker load)
   rsync           Sincroniza el proyecto a DEPLOY_PATH (sin reconstruir imagen)
-  restart         Sube .env y recrea el contenedor con la imagen ya presente en el VPS
-  health          GET API_BASE_URL/api/v1/health
+  restart         Sube .env y recrea contenedores API (:8000) y UI (:8501)
+  health          Comprueba API /health y UI :8501
   ssh 'comando'   Ejecuta un comando remoto
 
 Variables leídas de .env:
   SSH_HOST SSH_USER SSH_PORT SSH_PASSWORD DEPLOY_PATH CONTAINER_NAME
-  DOCKER_IMAGE API_BASE_URL
+  UI_CONTAINER_NAME DOCKER_IMAGE API_BASE_URL
 
 Ejemplo de actualización tras cambiar código:
   ./scripts/remote.sh deploy
+
+UI pública:
+  http://SSH_HOST:8501
 EOF
     exit 1
     ;;

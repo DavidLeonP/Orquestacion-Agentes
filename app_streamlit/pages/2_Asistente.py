@@ -12,17 +12,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.api_client import ApiError
+from lib.labels import format_llm_badge
 from lib.session import client, is_docente, render_sidebar, require_auth
 from lib.ui import poll_request, render_request_result, show_api_error
 
-st.set_page_config(page_title="Asistente", page_icon="🤖", layout="wide")
-user = require_auth()
+st.set_page_config(page_title="Asistente", page_icon="💬", layout="wide")
+require_auth()
 render_sidebar()
 
 st.title("Asistente")
 st.caption(
-    "Crea una solicitud async en la API. Streamlit solo hace polling del estado."
+    "Escribe lo que necesitas. El orquestador elige el agente adecuado y te muestra el progreso."
 )
+
+health = st.session_state.get("health")
+model_title, model_detail = format_llm_badge(health)
+st.caption(f"Modelo: **{model_title}** · {model_detail}")
 
 if is_docente():
     placeholders = [
@@ -30,22 +35,24 @@ if is_docente():
         "Estructura la unidad de circuitos en sesiones",
         "Propón una rúbrica de evaluación para el proyecto de tecnología",
     ]
-    st.markdown("**Sugerencias (docente)**")
+    st.markdown("**Ideas rápidas (docente)**")
 else:
     placeholders = [
         "¿Qué es la ley de Ohm?",
         "Explícame la diferencia entre serie y paralelo",
         "Ayúdame a estudiar circuitos eléctricos",
     ]
-    st.markdown("**Sugerencias (alumno · tutor)**")
+    st.markdown("**Ideas rápidas (alumno)**")
 
 cols = st.columns(len(placeholders))
 for i, text in enumerate(placeholders):
-    if cols[i].button(text[:48] + ("…" if len(text) > 48 else ""), key=f"sug_{i}"):
+    short = text[:48] + ("…" if len(text) > 48 else "")
+    if cols[i].button(short, key=f"sug_{i}", use_container_width=True):
         st.session_state["peticion_draft"] = text
+        st.rerun()
 
 peticion = st.text_area(
-    "Petición",
+    "Tu petición",
     value=st.session_state.get("peticion_draft", ""),
     height=140,
     placeholder=placeholders[0],
@@ -53,16 +60,17 @@ peticion = st.text_area(
 
 api = client()
 try:
-    if st.button("Enviar", type="primary", use_container_width=True):
+    if st.button("Enviar petición", type="primary", use_container_width=True):
         if not peticion.strip():
             st.warning("Escribe una petición.")
         else:
             try:
-                req = api.create_request(peticion.strip())
+                with st.spinner("Enviando al orquestador…"):
+                    req = api.create_request(peticion.strip())
                 st.session_state["last_request_id"] = req["id"]
-                st.info(
-                    f"Request `{req['id']}` creada · thread `{req['thread_id']}` "
-                    f"· status `{req['status']}`"
+                st.success(
+                    f"Petición **#{req['id']}** recibida. "
+                    "Ahora los agentes trabajan; el progreso aparece a continuación."
                 )
                 result = poll_request(api, req["id"])
                 st.session_state["last_request"] = result
@@ -74,8 +82,5 @@ try:
         st.divider()
         st.subheader("Resultado")
         render_request_result(last)
-
-        if last.get("status") == "waiting_approval" and is_docente():
-            st.page_link("pages/4_Aprobaciones.py", label="Ir a Aprobaciones →")
 finally:
     api.close()
