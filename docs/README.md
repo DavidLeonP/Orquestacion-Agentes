@@ -24,4 +24,7 @@ Compose (API `:8000` + UI `:8501`): `docker compose up -d --build`.
 
 Producción (VPS): `./scripts/remote.sh deploy` → UI `http://SSH_HOST:8501`, API `http://SSH_HOST:8000`.
 
+UX UI (resumen): modelo en sidebar, progreso por fases en Asistente, approve inline,
+filtros en Historial, confirmaciones en borrado/HITL. Detalle en [implementacion.md](implementacion.md) §6.
+
 Material de origen en `Documentacion/` (requerimiento, base de definición y papers PDF).

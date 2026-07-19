@@ -46,27 +46,46 @@ else:
 
 cols = st.columns(len(placeholders))
 for i, text in enumerate(placeholders):
-    short = text[:48] + ("…" if len(text) > 48 else "")
-    if cols[i].button(short, key=f"sug_{i}", use_container_width=True):
+    short = text[:40] + ("…" if len(text) > 40 else "")
+    if cols[i].button(short, key=f"sug_{i}", use_container_width=True, help=text):
         st.session_state["peticion_draft"] = text
+        st.session_state["peticion_area"] = text
+        st.session_state["clear_peticion"] = False
         st.rerun()
 
-peticion = st.text_area(
-    "Tu petición",
-    value=st.session_state.get("peticion_draft", ""),
-    height=140,
-    placeholder=placeholders[0],
-)
+with st.expander("Ver ejemplos completos"):
+    for text in placeholders:
+        st.markdown(f"- {text}")
+
+if st.session_state.pop("clear_peticion", False):
+    st.session_state["peticion_draft"] = ""
+    st.session_state["peticion_area"] = ""
+
+if "peticion_area" not in st.session_state:
+    st.session_state["peticion_area"] = st.session_state.get("peticion_draft", "")
 
 api = client()
 try:
-    if st.button("Enviar petición", type="primary", use_container_width=True):
-        if not peticion.strip():
+    with st.form("peticion_form", clear_on_submit=False):
+        peticion = st.text_area(
+            "Tu petición",
+            height=140,
+            placeholder=placeholders[0],
+            key="peticion_area",
+        )
+        submitted = st.form_submit_button(
+            "Enviar petición", type="primary", use_container_width=True
+        )
+
+    if submitted:
+        text = (peticion or "").strip()
+        if not text:
             st.warning("Escribe una petición.")
         else:
+            st.session_state["peticion_draft"] = text
             try:
                 with st.spinner("Enviando al orquestador…"):
-                    req = api.create_request(peticion.strip())
+                    req = api.create_request(text)
                 st.session_state["last_request_id"] = req["id"]
                 st.success(
                     f"Petición **#{req['id']}** recibida. "
@@ -74,6 +93,10 @@ try:
                 )
                 result = poll_request(api, req["id"])
                 st.session_state["last_request"] = result
+                from lib.session import refresh_pending_approvals
+
+                if is_docente():
+                    refresh_pending_approvals(api)
             except ApiError as exc:
                 show_api_error(exc)
 
@@ -81,6 +104,15 @@ try:
     if last:
         st.divider()
         st.subheader("Resultado")
-        render_request_result(last)
+        updated = render_request_result(
+            last, api=api, show_inline_approve=True, key_prefix="asistente"
+        )
+        if updated:
+            st.session_state["last_request"] = updated
+            from lib.session import refresh_pending_approvals
+
+            if is_docente():
+                refresh_pending_approvals(api)
+            st.rerun()
 finally:
     api.close()

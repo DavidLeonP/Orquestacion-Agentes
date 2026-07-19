@@ -12,17 +12,28 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.api_client import ApiError
+from lib.labels import doc_status_label, indice_hint, indice_label
 from lib.session import INDICES, client, render_sidebar, require_auth
-from lib.ui import show_api_error
+from lib.ui import confirm_action, show_api_error
 
 st.set_page_config(page_title="Conocimiento", page_icon="📚", layout="wide")
 require_auth()
 render_sidebar()
 
 st.title("Conocimiento")
-st.caption("Documentos privados por usuario. Ingest → chunks + embeddings en MySQL.")
+st.caption(
+    "Tu material privado. Sube documentos y luego **indexa** para que el asistente los use."
+)
 
-indice = st.selectbox("Índice", INDICES)
+indice_options = {indice_label(i): i for i in INDICES}
+indice_ui = st.selectbox(
+    "Tipo de material",
+    list(indice_options.keys()),
+    help="Cada tipo alimenta un índice distinto del asistente.",
+)
+indice = indice_options[indice_ui]
+st.caption(indice_hint(indice))
+
 api = client()
 
 try:
@@ -46,25 +57,29 @@ try:
             else:
                 try:
                     doc = api.create_document(indice, name, text)
-                    st.success(f"Documento `{doc['id']}` creado ({doc['status']}).")
+                    st.success(
+                        f"Documento «{doc.get('filename') or name}» creado. "
+                        "Pulsa **Indexar pendientes** para que el asistente lo use."
+                    )
                     st.rerun()
                 except ApiError as exc:
                     show_api_error(exc)
 
-        if st.button("Ingestar pendientes", type="primary", use_container_width=True):
+        if st.button("Indexar pendientes", type="primary", use_container_width=True):
             try:
-                result = api.ingest()
+                with st.spinner("Indexando…"):
+                    result = api.ingest()
                 st.success(
-                    f"Procesados: {result.get('procesados')} · "
+                    f"Listos: {result.get('procesados')} · "
                     f"Errores: {result.get('errores')}"
                 )
-                with st.expander("Detalle"):
+                with st.expander("Detalle técnico"):
                     st.json(result.get("detalle") or [])
             except ApiError as exc:
                 show_api_error(exc)
 
     with col_list:
-        st.subheader(f"Documentos · `{indice}`")
+        st.subheader(f"Documentos · {indice_label(indice)}")
         try:
             docs = api.list_documents(indice=indice)
         except ApiError as exc:
@@ -72,32 +87,39 @@ try:
             docs = []
 
         if not docs:
-            st.info("No hay documentos en este índice.")
+            st.info("Aún no hay documentos aquí. Añade el primero a la derecha.")
         else:
             for doc in docs:
+                status_txt = doc_status_label(doc.get("status"))
                 with st.expander(
-                    f"#{doc['id']} · {doc['filename']} · `{doc['status']}`"
+                    f"{doc.get('filename') or 'sin nombre'} · {status_txt}"
                 ):
-                    st.write(
-                        f"Creado: `{doc.get('created_at')}` · "
-                        f"Actualizado: `{doc.get('updated_at')}`"
+                    st.caption(
+                        f"#{doc['id']} · Creado: {doc.get('created_at') or '—'} · "
+                        f"Actualizado: {doc.get('updated_at') or '—'}"
                     )
                     if doc.get("error_msg"):
                         st.error(doc["error_msg"])
 
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     if c1.button("Ver / editar", key=f"edit_{doc['id']}"):
                         st.session_state[f"editing_{doc['id']}"] = True
                     if c2.button("Reprocesar", key=f"rep_{doc['id']}"):
                         try:
                             out = api.reprocess(doc["id"])
                             st.success(
-                                f"Reprocesado: {out.get('chunks')} chunks "
-                                f"({out.get('status')})"
+                                f"Reprocesado: {out.get('chunks')} fragmentos "
+                                f"({doc_status_label(out.get('status'))})"
                             )
                         except ApiError as exc:
                             show_api_error(exc)
-                    if c3.button("Borrar", key=f"del_{doc['id']}"):
+
+                    st.markdown("**Eliminar**")
+                    if confirm_action(
+                        "Eliminar documento",
+                        key=f"del_{doc['id']}",
+                        warn="Confirmo que quiero eliminar este documento",
+                    ):
                         try:
                             api.delete_document(doc["id"])
                             st.success("Eliminado.")
@@ -113,7 +135,7 @@ try:
                             continue
                         with st.form(f"form_edit_{doc['id']}"):
                             new_name = st.text_input(
-                                "Filename", value=detail.get("filename") or ""
+                                "Nombre", value=detail.get("filename") or ""
                             )
                             new_text = st.text_area(
                                 "Contenido",
@@ -129,19 +151,23 @@ try:
                                     content_text=new_text,
                                 )
                                 st.session_state[f"editing_{doc['id']}"] = False
-                                st.success("Actualizado (vuelve a `pending`).")
+                                st.success(
+                                    "Actualizado. Vuelve a **Indexar pendientes** "
+                                    "para aplicar los cambios."
+                                )
                                 st.rerun()
                             except ApiError as exc:
                                 show_api_error(exc)
 
     st.divider()
-    if st.checkbox("Mostrar chunks del índice"):
+    with st.expander("Vista técnica: fragmentos indexados"):
+        st.caption("Solo para depuración. No hace falta para usar el asistente.")
         try:
             chunks = api.list_chunks(indice=indice)
-            st.write(f"{len(chunks)} chunks (máx. API)")
+            st.write(f"{len(chunks)} fragmentos (máx. API)")
             for ch in chunks[:50]:
                 with st.expander(
-                    f"chunk #{ch['id']} · doc {ch['document_id']} · pos {ch['position']}"
+                    f"#{ch['id']} · doc {ch['document_id']} · pos {ch['position']}"
                 ):
                     st.write(ch.get("texto") or "")
         except ApiError as exc:

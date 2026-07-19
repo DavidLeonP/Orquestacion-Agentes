@@ -78,8 +78,9 @@ el RAG). El CLI (`main.py`) y `src/legacy_chat_api.py` quedan como legado opcion
 | Solicitudes | `POST/GET /requests`, `/approve`, `/events` | Orquestador async + HITL |
 | Salud | `GET /health` | Liveness + `llm` del registry |
 
-**UI Streamlit** (`streamlit run app_streamlit/Home.py`): Home (login), Conocimiento,
-Asistente (polling), Historial, Aprobaciones (docente). Variable `STREAMLIT_API_BASE_URL`.
+**UI Streamlit** (`streamlit run app_streamlit/Home.py`): Home (login + CTA), Conocimiento
+(indexar / confirmar borrado), Asistente (progreso + approve inline HITL), Historial
+(filtros / reanudar), Aprobaciones (contador en menú). Variable `STREAMLIT_API_BASE_URL`.
 
 Aislamiento: **todo filtrado por `user_id` del JWT**. Un usuario no ve documentos,
 chunks ni solicitudes de otro.

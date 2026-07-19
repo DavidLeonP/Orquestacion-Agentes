@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.api_client import ApiClient, ApiError
-from lib.labels import format_llm_badge
+from lib.labels import NAV_DESCRIPTIONS, NAV_ITEMS, format_llm_badge
 from lib.session import (
     init_session,
     is_authenticated,
@@ -21,15 +21,6 @@ from lib.session import (
     render_sidebar,
 )
 from lib.ui import show_api_error
-
-# Menú local (evita ImportError por caché de módulos en Streamlit)
-NAV_ITEMS = [
-    ("Home.py", "Inicio", "🏠"),
-    ("pages/1_Conocimiento.py", "Conocimiento", "📚"),
-    ("pages/2_Asistente.py", "Asistente", "💬"),
-    ("pages/3_Historial.py", "Historial", "📋"),
-    ("pages/4_Aprobaciones.py", "Aprobaciones", "✅"),
-]
 
 st.set_page_config(
     page_title="Asistente IA Educación",
@@ -45,44 +36,45 @@ if is_authenticated():
     user = st.session_state.user or {}
     health = st.session_state.get("health")
     model_title, model_detail = format_llm_badge(health)
+    pending = st.session_state.get("pending_approvals") or 0
 
     st.title("Bienvenido")
     st.markdown(
         f"Sesión de **{user.get('email')}** · rol `{user.get('rol')}`"
     )
-
-    m1, m2 = st.columns([1.2, 1])
-    with m1:
-        st.subheader("Modelo activo")
-        if health and (health.get("llm") or {}).get("llm_model"):
-            st.success(model_title)
-            st.caption(model_detail)
-        else:
-            st.warning(model_title)
-            st.caption(model_detail)
-    with m2:
-        st.subheader("¿Qué quieres hacer?")
-        st.caption("Elige una sección del menú:")
+    st.caption(f"Modelo activo: **{model_title}** · {model_detail}")
 
     st.divider()
+    st.subheader("Empezar")
+    st.page_link(
+        "pages/2_Asistente.py",
+        label="Ir al Asistente →",
+        use_container_width=True,
+    )
+
+    if is_docente() and pending:
+        st.info(f"Tienes **{pending}** borrador(es) pendiente(s) de aprobación.")
+        st.page_link(
+            "pages/4_Aprobaciones.py",
+            label=f"Revisar aprobaciones ({pending}) →",
+            use_container_width=True,
+        )
+
+    st.divider()
+    st.caption("Otras secciones")
     cols = st.columns(2)
     links = [
         item
         for item in NAV_ITEMS
         if item[0] != "Home.py"
+        and item[0] != "pages/2_Asistente.py"
         and not (item[0].endswith("4_Aprobaciones.py") and not is_docente())
     ]
-    descriptions = {
-        "pages/1_Conocimiento.py": "Sube y gestiona apuntes, exámenes y rúbricas.",
-        "pages/2_Asistente.py": "Haz una pregunta o pide generar material.",
-        "pages/3_Historial.py": "Revisa peticiones anteriores y su resultado.",
-        "pages/4_Aprobaciones.py": "Aprueba o rechaza borradores de examen.",
-    }
     for i, (path, label, icon) in enumerate(links):
         with cols[i % 2]:
             with st.container(border=True):
-                st.markdown(f"#### {icon} {label}")
-                st.caption(descriptions.get(path, ""))
+                st.markdown(f"**{icon} {label}**")
+                st.caption(NAV_DESCRIPTIONS.get(path, ""))
                 st.page_link(path, label=f"Abrir {label} →", use_container_width=True)
 
     st.stop()
@@ -94,17 +86,20 @@ tab_login, tab_register = st.tabs(["Iniciar sesión", "Registrarse"])
 
 with tab_login:
     with st.form("login_form"):
-        email = st.text_input("Email", value="demo@instituto.local")
-        password = st.text_input("Contraseña", type="password", value="demo1234")
+        email = st.text_input("Email", placeholder="tu@instituto.local")
+        password = st.text_input("Contraseña", type="password")
         submitted = st.form_submit_button("Entrar", use_container_width=True)
     if submitted:
-        try:
-            login(email.strip(), password)
-            st.rerun()
-        except ApiError as exc:
-            show_api_error(exc)
-        except Exception as exc:
-            st.error(f"No se pudo conectar con la API: {exc}")
+        if not email.strip() or not password:
+            st.warning("Introduce email y contraseña.")
+        else:
+            try:
+                login(email.strip(), password)
+                st.rerun()
+            except ApiError as exc:
+                show_api_error(exc)
+            except Exception as exc:
+                st.error(f"No se pudo conectar con la API: {exc}")
     st.caption("Demo docente: `demo@instituto.local` / `demo1234`")
 
 with tab_register:
@@ -117,7 +112,9 @@ with tab_register:
         api = ApiClient()
         try:
             api.register(email_r.strip(), password_r, rol)
-            st.success("Cuenta creada. Inicia sesión en la pestaña anterior.")
+            st.success(
+                "Cuenta creada. Usa la pestaña **Iniciar sesión** con tu email y contraseña."
+            )
         except ApiError as exc:
             show_api_error(exc)
         except Exception as exc:

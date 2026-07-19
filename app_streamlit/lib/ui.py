@@ -8,7 +8,13 @@ from typing import Any, Callable
 import streamlit as st
 
 from lib.api_client import ApiClient, ApiError
-from lib.labels import agent_label, node_hint, status_label
+from lib.labels import (
+    agent_label,
+    node_hint,
+    phase_progress,
+    status_badge,
+    status_label,
+)
 from lib.session import is_docente, logout
 
 
@@ -18,6 +24,17 @@ def show_api_error(exc: ApiError) -> None:
         st.error("Sesión expirada. Vuelve a iniciar sesión en Inicio.")
         return
     st.error(f"{exc.detail}")
+
+
+def confirm_action(label: str, key: str, *, warn: str | None = None) -> bool:
+    """Confirmación en dos pasos (checkbox + botón). Devuelve True si confirma."""
+    checked = st.checkbox(
+        warn or f"Confirmo: {label}",
+        key=f"confirm_chk_{key}",
+    )
+    if not checked:
+        return False
+    return st.button(label, key=f"confirm_btn_{key}", type="primary")
 
 
 def _latest_node(events: list[dict[str, Any]]) -> str | None:
@@ -77,6 +94,7 @@ def poll_request(
     )
     status_box = st.status("Arrancando el asistente…", expanded=True)
     with status_box:
+        progress = st.progress(0.05, text="Iniciando…")
         phase = st.empty()
         hint = st.empty()
         timeline = st.empty()
@@ -97,10 +115,12 @@ def poll_request(
             status = last.get("status", "?")
             nodo = _latest_node(events) or last.get("agente_destino")
             elapsed = int(time.time() - started)
+            pct = phase_progress(nodo if isinstance(nodo, str) else None, status)
             label = f"{agent_label(nodo)} · {elapsed}s"
 
+            progress.progress(pct, text=label)
             phase.markdown(f"**{status_label(status)}** — {agent_label(nodo)}")
-            hint.caption(node_hint(nodo))
+            hint.caption(node_hint(nodo if isinstance(nodo, str) else None))
             steps = _step_timeline(events)
             if steps:
                 timeline.markdown("\n".join(steps))
@@ -109,6 +129,7 @@ def poll_request(
             clock.caption(f"Tiempo transcurrido: {elapsed} s")
 
             if status in terminal:
+                progress.progress(1.0 if status != "failed" else pct, text=status_label(status))
                 if status == "completed":
                     status_box.update(label=f"Completada en {elapsed}s", state="complete")
                 elif status == "waiting_approval":
@@ -131,20 +152,48 @@ def poll_request(
     return last
 
 
-def render_request_result(req: dict[str, Any]) -> None:
+def render_request_result(
+    req: dict[str, Any],
+    *,
+    api: ApiClient | None = None,
+    show_inline_approve: bool = True,
+    key_prefix: str = "",
+) -> dict[str, Any] | None:
+    """Renderiza resultado. Si hay approve inline, puede devolver el request actualizado."""
     status = req.get("status")
     agente = req.get("agente_destino")
-    st.markdown(f"### {status_label(status)}")
-    st.caption(
-        f"Petición #{req.get('id')} · {agent_label(agente)}"
-    )
+    rid = req.get("id")
+    prefix = f"{key_prefix}_" if key_prefix else ""
+
+    st.markdown(f"### {status_badge(status)}")
+    st.caption(f"Petición #{rid} · {agent_label(agente)}")
 
     if status == "completed":
         st.success("Aquí tienes la respuesta")
         st.markdown(req.get("respuesta_final") or "_(sin respuesta)_")
-    elif status == "failed":
+        c1, c2 = st.columns(2)
+        if c1.button(
+            "Nueva petición",
+            key=f"{prefix}new_req_{rid}",
+            use_container_width=True,
+        ):
+            st.session_state.pop("last_request", None)
+            st.session_state.pop("last_request_id", None)
+            st.session_state["peticion_draft"] = ""
+            st.session_state["clear_peticion"] = True
+            st.rerun()
+        c2.page_link(
+            "pages/3_Historial.py",
+            label="Ver en Historial →",
+            use_container_width=True,
+        )
+        return None
+
+    if status == "failed":
         st.error(req.get("error") or "Error desconocido")
-    elif status == "waiting_approval":
+        return None
+
+    if status == "waiting_approval":
         st.warning(
             "El borrador está listo. Como docente, debes **aprobarlo o rechazarlo** "
             "antes de que quede como respuesta final."
@@ -156,16 +205,56 @@ def render_request_result(req: dict[str, Any]) -> None:
         if approval.get("veredicto"):
             with st.expander("Veredicto de la rúbrica", expanded=False):
                 st.markdown(approval["veredicto"])
+
+        updated: dict[str, Any] | None = None
+        if show_inline_approve and is_docente() and api is not None:
+            st.markdown("**Decide aquí**")
+            a1, a2 = st.columns(2)
+            with a1:
+                if confirm_action(
+                    "Aprobar y continuar",
+                    key=f"{prefix}inline_ok_{rid}",
+                    warn="Confirmo que quiero aprobar este borrador",
+                ):
+                    try:
+                        api.approve(int(req["id"]), "si")
+                        st.success("Aprobado. Cerrando la petición…")
+                        updated = poll_request(api, int(req["id"]))
+                        st.session_state["last_request"] = updated
+                    except ApiError as exc:
+                        show_api_error(exc)
+            with a2:
+                if confirm_action(
+                    "Rechazar",
+                    key=f"{prefix}inline_no_{rid}",
+                    warn="Confirmo que quiero rechazar este borrador",
+                ):
+                    try:
+                        api.approve(int(req["id"]), "no")
+                        st.warning("Rechazado. Cerrando la petición…")
+                        updated = poll_request(api, int(req["id"]))
+                        st.session_state["last_request"] = updated
+                    except ApiError as exc:
+                        show_api_error(exc)
+            st.page_link(
+                "pages/4_Aprobaciones.py",
+                label="O ir a Aprobaciones →",
+            )
+            return updated
+
         if is_docente():
             st.page_link(
                 "pages/4_Aprobaciones.py",
                 label="Ir a Aprobaciones para decidir →",
             )
-    elif status == "running":
+        return None
+
+    if status == "running":
         st.info(
             "Todavía trabajando. Si acabas de enviarla, espera unos segundos o "
-            "mira el progreso en Asistente."
+            "usa **Seguir progreso** en Historial."
         )
+    return None
 
 
 def safe_call(fn: Callable[[], Any], *, on_error: str = "Error de API") -> Any:

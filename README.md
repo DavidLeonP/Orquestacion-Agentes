@@ -78,15 +78,15 @@ Cliente HTTP de la API JWT (no embebe LangGraph ni RAG):
 
 | Página | Función |
 |--------|---------|
-| Home | Login / registro; menú y **modelo activo** tras autenticar |
-| Conocimiento | CRUD docs + ingest |
-| Asistente | Nueva petición + progreso por pasos (polling) |
-| Historial | Solicitudes y eventos legibles |
-| Aprobaciones | HITL de exámenes (solo docente) |
+| Home | Login / registro; CTA al Asistente; aviso de aprobaciones pendientes |
+| Conocimiento | Material con labels humanos, indexar, confirmar borrado |
+| Asistente | Formulario + progreso por fases; approve inline si hay HITL |
+| Historial | Filtros por estado; reanudar `running`; atajos accionables |
+| Aprobaciones | Contador en menú; confirmar antes de aprobar/rechazar |
 
-Tras el login, el sidebar muestra el modelo activo (`GET /health`) y el menú de navegación.
-Al generar un examen, el Asistente muestra pasos (“Clasificando…”, “Generando…”, etc.) y
-puede quedar en **pendiente de aprobación** (no es un cuelgue).
+Tras el login, el sidebar muestra el modelo activo (`GET /health`) y el menú.
+Al generar un examen verás pasos y una barra de progreso; `waiting_approval` no es un cuelgue:
+puedes decidir en el resultado o en **Aprobaciones**.
 
 Variable: `STREAMLIT_API_BASE_URL` (local `http://127.0.0.1:8000`; en Docker/VPS la red
 interna usa el nombre del contenedor API).

@@ -9,7 +9,7 @@ title Contenedores — Asistente IA Educación
 Person(usuario, "Usuario", "Docente o alumno autenticado")
 
 System_Boundary(sys, "Asistente IA Educación") {
-    Container(ui, "UI Streamlit", "Streamlit / Python", "Login, KB, Asistente, Historial, Aprobaciones HITL")
+    Container(ui, "UI Streamlit", "Streamlit / Python", "Login, KB, Asistente con progreso, Historial, HITL con confirmación")
     Container(api, "API REST", "FastAPI / Uvicorn / Python", "JWT, knowledge, requests, HITL, OpenAPI /docs, /health")
     Container(orq, "Orquestador multi-agente", "LangGraph + LangChain", "Router, 4 agentes ReAct, validación cruzada, interrupt")
     Container(registry, "Model registry", "src/llm", "Perfiles OpenAI/Ollama para chat y embeddings")

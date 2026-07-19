@@ -183,18 +183,19 @@ streamlit run app_streamlit/Home.py
 
 | Página | Función |
 |---|---|
-| Home | Login / registro; hub post-login con menú y modelo activo |
-| Conocimiento | CRUD docs, ingest, chunks |
-| Asistente | `POST /requests` + polling con pasos legibles y tiempo |
-| Historial | Lista + eventos en lenguaje natural |
-| Aprobaciones | HITL (solo docente) |
+| Home | Login / registro; CTA al Asistente; aviso de pendientes HITL |
+| Conocimiento | Material con labels humanos, indexar, confirmar borrado |
+| Asistente | Form + polling con barra de progreso; approve inline (docente) |
+| Historial | Filtro por estado; reanudar `running`; atajos accionables |
+| Aprobaciones | Contador en menú; confirmar antes de decidir |
 
 UX relevante:
 
-- Tras autenticar, el **sidebar** muestra modelo activo (`GET /health`) y navegación.
-- El polling del Asistente explica que un examen puede tardar 1–2 min y lista pasos
-  (`router` → `exam_generator` → `validar` → …).
-- Estado `waiting_approval` no es un fallo: el borrador espera decisión en **Aprobaciones**.
+- Tras autenticar, el **sidebar** muestra modelo activo (`GET /health`) y navegación
+  (con badge de pendientes en Aprobaciones).
+- El polling del Asistente explica la espera, muestra fases y progreso aproximado.
+- Estado `waiting_approval`: decidir **inline** en el resultado o en Aprobaciones.
+- Acciones destructivas / HITL requieren confirmación (checkbox + botón).
 
 Módulos: `app_streamlit/lib/` (`api_client`, `session`, `ui`, `labels`).
 
