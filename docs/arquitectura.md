@@ -248,8 +248,8 @@ sequenceDiagram
 | Persistencia | MySQL (SQLAlchemy) | Usuarios, KB, requests, memoria |
 | Orquestación | LangGraph | Grafo, checkpoint, interrupt HITL |
 | Agentes | LangChain ReAct | Razonamiento + tools |
-| RAG | BM25 + embeddings (OpenAI u Ollama) + RRF sobre MySQL | Filtra por `chunk_embeddings.model` |
-| LLM | Model registry (`LLM_PROFILE`) | OpenAI cloud o Ollama local |
+| RAG | BM25 + embeddings (OpenAI, vLLM u Ollama) + RRF sobre MySQL | Filtra por `chunk_embeddings.model` |
+| LLM | Model registry (`LLM_PROFILE`) | OpenAI cloud, vLLM USFQ u Ollama local |
 | UI | Streamlit (`app_streamlit/`) | Cliente HTTP JWT, sin embeber el grafo |
 | Observabilidad | JSONL local + LangSmith opcional | Depuración y coste |
 | Validación | Pydantic | Schemas API y contratos entre agentes |
@@ -262,10 +262,14 @@ sequenceDiagram
 | Perfil | Chat | Embeddings |
 |---|---|---|
 | `cloud_openai` (default) | `gpt-4o-mini` | `text-embedding-3-small` |
+| `vllm_usfq` | `deepseek-ai/DeepSeek-V4-Flash-0731` (`:12555`) | `BAAI/bge-m3` (`:12556`) |
 | `local_barato` | Ollama `qwen2.5:3b` | Ollama `nomic-embed-text` |
 | `local_calidad` | Ollama `qwen2.5:7b` | Ollama `nomic-embed-text` |
 
-Prioridad de resolución: argumento > env (`LLM_MODEL`, …) > perfil. Ollama usa el endpoint compatible OpenAI (`OLLAMA_BASE_URL`). La búsqueda semántica solo compara embeddings del modelo activo; se pueden almacenar varios modelos en MySQL sin mezclarlos en cosine.
+Prioridad de resolución: argumento > env (`LLM_MODEL`, …) > perfil. vLLM usa
+`LLM_BASE_URL` y `EMBEDDING_BASE_URL` separadas; Ollama usa `OLLAMA_BASE_URL`.
+La búsqueda semántica solo compara embeddings del modelo activo; se pueden almacenar
+varios modelos en MySQL sin mezclarlos en cosine.
 
 `GET /health` expone la selección activa vía `describe_llm()`.
 
@@ -273,8 +277,8 @@ Prioridad de resolución: argumento > env (`LLM_MODEL`, …) > perfil. Ollama us
 
 Variables clave en `.env`:
 
-- `LLM_PROFILE` (`cloud_openai` \| `local_barato` \| `local_calidad`)
-- Overrides opcionales: `LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `OLLAMA_BASE_URL`
+- `LLM_PROFILE` (`cloud_openai` \| `vllm_usfq` \| `local_barato` \| `local_calidad`)
+- Overrides: `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OLLAMA_BASE_URL`
 - `OPENAI_API_KEY` (requerido en perfil cloud)
 - `DATABASE_URL` (MySQL remoto)
 - `JWT_SECRET`, `JWT_EXPIRE_MINUTES`

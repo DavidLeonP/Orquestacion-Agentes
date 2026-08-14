@@ -14,7 +14,7 @@ DIR_CHROMA = DIR_STORAGE / "chroma"
 DIR_MEMORIA = DIR_STORAGE / "memoria"
 DIR_LOGS = DIR_STORAGE / "logs"
 
-# Perfil de recursos: cloud_openai | local_barato | local_calidad
+# Perfil de recursos: cloud_openai | vllm_usfq | local_barato | local_calidad
 LLM_PROFILE = os.getenv("LLM_PROFILE", "cloud_openai")
 
 # Overrides opcionales (si están en el entorno, pisan el perfil)
@@ -22,6 +22,9 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER")
 LLM_MODEL = os.getenv("LLM_MODEL")
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL")
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
+OPENAI_COMPAT_API_KEY = os.getenv("OPENAI_COMPAT_API_KEY", "local")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 

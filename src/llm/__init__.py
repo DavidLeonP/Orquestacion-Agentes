@@ -8,6 +8,7 @@ from src.llm.registry import (
     get_chat_model,
     get_embeddings,
     get_selection,
+    get_structured_model,
     invalidate_registry_cache,
     resolve_selection,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "get_chat_model",
     "get_embeddings",
     "get_selection",
+    "get_structured_model",
     "invalidate_registry_cache",
     "resolve_selection",
 ]

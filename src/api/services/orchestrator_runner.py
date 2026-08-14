@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.agents.schemas import (
@@ -36,6 +37,30 @@ def _borrador_hitl(interrupt_data: dict) -> str:
     return str(interrupt_data.get("borrador") or "")
 
 
+def _refresh_db(db: Session, request_id: int) -> tuple[Session, Request]:
+    """Reabre la sesión si MySQL cerró la conexión durante una inferencia larga."""
+    try:
+        db.execute(text("SELECT 1"))
+        req = db.get(Request, request_id)
+        if req is None:
+            raise RuntimeError(f"Request {request_id} no encontrada")
+        return db, req
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        try:
+            db.close()
+        except Exception:
+            pass
+        db = SessionLocal()
+        req = db.get(Request, request_id)
+        if req is None:
+            raise RuntimeError(f"Request {request_id} no encontrada tras reconectar")
+        return db, req
+
+
 # Checkpointer de proceso (HITL entre requests HTTP mientras el proceso viva).
 # Para multi-worker en producción conviene un checkpointer externo.
 _CHECKPOINTER = MemorySaver()
@@ -49,13 +74,70 @@ def _app():
     return _APP
 
 
-def _add_event(db: Session, request_id: int, tipo: str, payload: dict | None = None) -> None:
-    db.add(RequestEvent(request_id=request_id, tipo=tipo, payload=payload or {}))
-    db.commit()
+def _add_event(db: Session, request_id: int, tipo: str, payload: dict | None = None) -> Session:
+    """Inserta evento; reconecta si MySQL cerró la sesión idle."""
+    try:
+        db.execute(text("SELECT 1"))
+        db.add(RequestEvent(request_id=request_id, tipo=tipo, payload=payload or {}))
+        db.commit()
+        return db
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        try:
+            db.close()
+        except Exception:
+            pass
+        db = SessionLocal()
+        db.add(RequestEvent(request_id=request_id, tipo=tipo, payload=payload or {}))
+        db.commit()
+        return db
+
+
+def _mark_failed(request_id: int, error: str) -> None:
+    db = SessionLocal()
+    try:
+        req = db.get(Request, request_id)
+        if req is None:
+            return
+        req.status = "failed"
+        req.error = error[:4000]
+        db.commit()
+        db.add(
+            RequestEvent(
+                request_id=request_id,
+                tipo="failed",
+                payload={"error": error[:500]},
+            )
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def ejecutar_request(request_id: int) -> None:
-    """Ejecuta el grafo hasta completar o interrupt HITL."""
+    """Ejecuta el grafo hasta completar o interrupt HITL.
+
+    Nunca propaga excepciones: el TestClient de FastAPI re-lanza errores de
+    BackgroundTasks y rompería el pipeline E2E con LLMs locales lentos.
+    """
+    try:
+        _ejecutar_request_impl(request_id)
+    except Exception as exc:  # noqa: BLE001
+        _mark_failed(request_id, str(exc))
+
+
+def _ejecutar_request_impl(request_id: int) -> None:
     db = SessionLocal()
     rag_token = None
     mem_token = None
@@ -77,6 +159,7 @@ def ejecutar_request(request_id: int) -> None:
 
         estado: dict = {}
         for chunk in app.stream(entrada, config=config, stream_mode="updates"):
+            db, req = _refresh_db(db, request_id)
             if "__interrupt__" in chunk:
                 interrupt_data = chunk["__interrupt__"][0].value
                 req.status = "waiting_approval"
@@ -95,7 +178,7 @@ def ejecutar_request(request_id: int) -> None:
                     req.approval.veredicto = _texto_veredicto_hitl(interrupt_data)
                     req.approval.decision = "pending"
                 db.commit()
-                _add_event(
+                db = _add_event(
                     db,
                     req.id,
                     "waiting_approval",
@@ -113,26 +196,29 @@ def ejecutar_request(request_id: int) -> None:
                 if "agente_destino" in actualizacion:
                     req.agente_destino = actualizacion["agente_destino"]
                     db.commit()
-                _add_event(db, req.id, "nodo_grafo", {"nodo": nodo, "claves": list(actualizacion.keys())})
+                db = _add_event(
+                    db,
+                    req.id,
+                    "nodo_grafo",
+                    {"nodo": nodo, "claves": list(actualizacion.keys())},
+                )
 
+        db, req = _refresh_db(db, request_id)
         req.respuesta_final = estado.get("respuesta_final")
         req.status = "completed"
         db.commit()
-        _add_event(db, req.id, "completed", {})
+        db = _add_event(db, req.id, "completed", {})
     except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        req = db.get(Request, request_id)
-        if req:
-            req.status = "failed"
-            req.error = str(exc)[:4000]
-            db.commit()
-            _add_event(db, req.id, "failed", {"error": str(exc)[:500]})
+        _mark_failed(request_id, str(exc))
     finally:
         if rag_token is not None:
             reset_rag_user_id(rag_token)
         if mem_token is not None:
             mem.reset_memory_user_id(mem_token)
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def aprobar_request(request_id: int, user_id: int, decision: str) -> Request:

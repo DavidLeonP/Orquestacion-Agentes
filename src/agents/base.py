@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from src.agents.schemas import safe_parse
 from src.config import MAX_ITERACIONES_REACT
-from src.llm import get_chat_model
+from src.llm import get_chat_model, get_structured_model
 from src.observability.trazas import registrar_evento
 
 T = TypeVar("T", bound=BaseModel)
@@ -88,7 +88,7 @@ def estructurar_salida(
     """
     registrar_evento("estructurar_inicio", esquema=esquema.__name__, agente=nombre)
     try:
-        llm = get_chat_model(temperature=0).with_structured_output(esquema)
+        llm = get_structured_model(esquema, temperature=0)
         resultado = llm.invoke(
             f"{instruccion}\n\n---\nContenido a estructurar:\n{texto}"
         )

@@ -215,8 +215,9 @@ Ver `.env.example`. Claves:
 | `DATABASE_URL` | MySQL (SQLAlchemy) |
 | `JWT_SECRET`, `JWT_EXPIRE_MINUTES` | Auth |
 | `CORS_ORIGINS` | CORS API |
-| `LLM_PROFILE` | `cloud_openai` \| `local_barato` \| `local_calidad` |
-| `LLM_*` / `EMBEDDING_*` / `OLLAMA_BASE_URL` | Overrides del perfil |
+| `LLM_PROFILE` | `cloud_openai` \| `vllm_usfq` \| `local_barato` \| `local_calidad` |
+| `LLM_BASE_URL` / `EMBEDDING_BASE_URL` | URLs separadas para APIs OpenAI-compatible |
+| `LLM_*` / `EMBEDDING_*` / `OPENAI_COMPAT_API_KEY` / `OLLAMA_BASE_URL` | Overrides del perfil |
 | `OPENAI_API_KEY` | Perfil cloud / provider openai |
 | `STREAMLIT_API_BASE_URL` | Base URL del cliente Streamlit |
 | `LANGCHAIN_*` | LangSmith opcional |
@@ -231,6 +232,26 @@ Bootstrap:
 python scripts/init_db.py
 python scripts/seed_demo_kb.py
 ```
+
+### 7.1 Switch OpenAI pagado ↔ vLLM USFQ
+
+El cambio se realiza únicamente con `LLM_PROFILE`; agentes, orquestador y contratos
+Pydantic siguen consumiendo `get_chat_model()` / `get_embeddings()`.
+
+```env
+# OpenAI pagado
+LLM_PROFILE=cloud_openai
+
+# vLLM USFQ (requiere VPN; solo HTTP)
+LLM_PROFILE=vllm_usfq
+LLM_BASE_URL=http://172.28.230.10:12555/v1
+EMBEDDING_BASE_URL=http://172.28.230.10:12556/v1
+OPENAI_COMPAT_API_KEY=local
+```
+
+Verifica model IDs y conectividad con `python scripts/smoke_vllm_usfq.py`.
+Al cambiar de embedding, reprocesa la KB; el retriever filtra por modelo y no mezcla
+vectores incompatibles.
 
 ## 8. Docker y VPS
 

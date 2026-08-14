@@ -24,8 +24,11 @@ def crear(
     db: Session = Depends(get_db),
 ):
     req = crear_request(db, user.id, user.rol, body.peticion)
-    background.add_task(ejecutar_request, req.id)
-    return req
+    # Serializar antes del background: TestClient ejecuta la tarea antes de
+    # devolver y la sesión HTTP puede caducar con LLMs locales lentos.
+    payload = RequestOut.model_validate(req)
+    background.add_task(ejecutar_request, payload.id)
+    return payload
 
 
 @router.get("", response_model=list[RequestOut])

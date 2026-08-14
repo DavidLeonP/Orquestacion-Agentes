@@ -91,17 +91,28 @@ puedes decidir en el resultado o en **Aprobaciones**.
 Variable: `STREAMLIT_API_BASE_URL` (local `http://127.0.0.1:8000`; en Docker/VPS la red
 interna usa el nombre del contenedor API).
 
-## Model registry (OpenAI / Ollama)
+## Model registry (OpenAI / vLLM / Ollama)
 
 Elige proveedor según recursos con `LLM_PROFILE` en `.env`:
 
 | Perfil | Chat | Embeddings |
 |--------|------|------------|
 | `cloud_openai` | gpt-4o-mini | text-embedding-3-small |
+| `vllm_usfq` | DeepSeek V4 Flash (`:12555`, VPN) | BGE-M3 (`:12556`, VPN) |
 | `local_barato` | qwen2.5:3b (Ollama) | nomic-embed-text |
 | `local_calidad` | qwen2.5:7b (Ollama) | nomic-embed-text |
 
 ```bash
+# Switch: OpenAI pagado
+LLM_PROFILE=cloud_openai
+
+# Switch: vLLM USFQ (requiere VPN; solo HTTP)
+LLM_PROFILE=vllm_usfq
+LLM_BASE_URL=http://172.28.230.10:12555/v1
+EMBEDDING_BASE_URL=http://172.28.230.10:12556/v1
+OPENAI_COMPAT_API_KEY=local
+python scripts/smoke_vllm_usfq.py
+
 # Local con Ollama
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
@@ -113,7 +124,8 @@ ollama pull nomic-embed-text
 curl http://127.0.0.1:8000/health
 ```
 
-Overrides: `LLM_PROVIDER`, `LLM_MODEL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `OLLAMA_BASE_URL`.  
+Overrides: `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `EMBEDDING_PROVIDER`,
+`EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OLLAMA_BASE_URL`.
 Los agentes y contratos Pydantic no cambian al cambiar de modelo.  
 Embeddings de distintos modelos pueden coexistir en MySQL; la búsqueda semántica solo usa el modelo activo (filtro por `chunk_embeddings.model`). Si cambias de embedding, reprocesa la KB para vectores del nuevo modelo (BM25 sigue disponible).
 

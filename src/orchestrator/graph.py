@@ -27,7 +27,7 @@ from src.agents.schemas import (
     safe_parse,
 )
 from src.agents.tutor import crear_tutor_agent
-from src.llm import get_chat_model
+from src.llm import get_structured_model
 from src.memory import store as default_store
 from src.observability.trazas import registrar_evento
 
@@ -49,10 +49,8 @@ class EstadoOrquestador(TypedDict, total=False):
 
 def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     store = memory_backend or default_store
-    llm_router = get_chat_model(temperature=0).with_structured_output(DecisionRouter)
-    llm_constraints = get_chat_model(temperature=0).with_structured_output(
-        ConstraintsExamen
-    )
+    llm_router = get_structured_model(DecisionRouter, temperature=0)
+    llm_constraints = get_structured_model(ConstraintsExamen, temperature=0)
     agentes = {
         "curriculum": crear_curriculum_agent(),
         "exam_generator": crear_exam_generator_agent(),
@@ -72,8 +70,21 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
             return {"agente_destino": destino, "intentos_validacion": 0}
         decision = llm_router.invoke(
             "Clasifica a qué agente especializado corresponde esta petición de "
-            f"un docente:\n\n{estado['peticion']}"
+            "un docente. Elige EXACTAMENTE uno de: curriculum, exam_generator, "
+            "rubric, tutor.\n"
+            "Ejemplos:\n"
+            "- 'Genera un examen de 6 preguntas' -> exam_generator\n"
+            "- 'Estructura la unidad en sesiones' -> curriculum\n"
+            "- 'Propón una rúbrica de evaluación' -> rubric\n"
+            "- 'Explica la ley de Ohm con los apuntes' -> tutor\n"
+            "- '¿Qué es un circuito en serie?' -> tutor\n\n"
+            f"Petición:\n{estado['peticion']}"
         )
+        if not isinstance(decision, DecisionRouter):
+            decision, _ = safe_parse(DecisionRouter, decision)
+        if not isinstance(decision, DecisionRouter) or not decision.agente:
+            # Fallback seguro si el LLM local no materializa el contrato.
+            decision = DecisionRouter(agente="tutor")
         out: dict[str, Any] = {
             "agente_destino": decision.agente,
             "intentos_validacion": 0,
