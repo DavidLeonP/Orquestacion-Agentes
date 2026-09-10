@@ -183,6 +183,8 @@ def render_sidebar() -> None:
             for path, label, icon in NAV_ITEMS:
                 if path.endswith("4_Aprobaciones.py") and not is_docente():
                     continue
+                if path.endswith("5_Consultas_SQL.py") and not is_docente():
+                    continue
                 nav_label = f"{icon} {label}"
                 if path.endswith("4_Aprobaciones.py") and pending:
                     nav_label = f"{icon} {label} ({pending})"

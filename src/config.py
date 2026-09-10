@@ -38,6 +38,16 @@ INDICES = {
 
 MAX_ITERACIONES_REACT = 10
 
+# --- SQL Agent (consultas en lenguaje natural sobre la BD de negocio) ---
+# BD de negocio que el SQL Agent consulta (distinta de DATABASE_URL, que es
+# metadatos de la app). Recomendado: usuario MySQL con permisos solo SELECT.
+# Cada request a POST /sql-queries puede enviar su propio `agent_db_uri` para
+# apuntar a otra BD sin reiniciar el proceso (ver SqlQueryCreateIn).
+AGENT_DB_URI = os.getenv("AGENT_DB_URI", "")
+# Límite del loop query_gen -> correct_query -> execute_query antes de cortar
+# con una respuesta controlada (retry_agotado) en vez de RECURSION_LIMIT.
+MAX_SQL_AGENT_ITERACIONES = int(os.getenv("MAX_SQL_AGENT_ITERACIONES", "10"))
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_VERBOSE = os.getenv("LOG_VERBOSE", "false").lower() in {"1", "true", "yes"}
 

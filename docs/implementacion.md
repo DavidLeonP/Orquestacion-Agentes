@@ -12,6 +12,7 @@ La arquitectura conceptual está en [arquitectura.md](arquitectura.md).
 | Orquestación multi-agente | LangGraph (supervisor + ReAct) | `src/orchestrator/`, `src/agents/` |
 | Contratos entre agentes | Pydantic | `src/agents/schemas.py` |
 | Conocimiento (RAG) | MySQL: BM25 + embeddings + RRF | `src/ingestion/mysql_pipeline.py`, `src/rag/mysql_store.py` |
+| SQL Agent (consultas de negocio) | LangGraph (`StateGraph` a medida, no ReAct) | `src/sql_agent/` |
 | Model registry | OpenAI / Ollama vía perfiles | `src/llm/registry.py` |
 | Memoria | Checkpointer (sesión) + MySQL (LTM) | LangGraph + `src/memory/` |
 | Auth | JWT + bcrypt | `src/api/security.py` |
@@ -35,13 +36,14 @@ Orquestacion-Agentes/
 ├── postman/
 ├── scripts/                   # init_db, seed_demo_kb, run_test_pipeline, remote.sh
 ├── src/
-│   ├── api/                   # API JWT (auth, knowledge, requests, HITL)
+│   ├── api/                   # API JWT (auth, knowledge, requests, sql-queries, HITL)
 │   ├── agents/                # Curriculum, Exam, Rubric, Tutor + schemas
 │   ├── llm/                   # Model registry
 │   ├── ingestion/             # mysql_pipeline (+ pipeline Chroma legado)
 │   ├── rag/                   # mysql_store, tools, chroma_client (legado)
 │   ├── memory/
 │   ├── orchestrator/graph.py
+│   ├── sql_agent/             # Grafo SQL Agent: validator, executor, database, tools, graph
 │   ├── legacy_chat_api.py     # API chat legado /api/v1/* (opcional)
 │   └── config.py
 ├── tests/
@@ -56,7 +58,7 @@ Persistencia **API JWT** (fuente de verdad):
 
 | Almacén | Contenido |
 |---|---|
-| MySQL | users, documents, chunks, chunk_embeddings, requests, approvals, memoria_* |
+| MySQL | users, documents, chunks, chunk_embeddings, requests, approvals, memoria_*, sql_queries, sql_query_events |
 | `storage/logs/` | Trazas JSONL locales (opcional) |
 
 Chroma / `storage/chunks` solo aplican al **CLI / API legado**, no al happy path JWT.
@@ -127,7 +129,49 @@ Comportamiento relevante:
 - **Límite ReAct**: `MAX_ITERACIONES_REACT` en `src/config.py`.
 - Chat/embeddings: `src/llm/registry.py` (`get_chat_model`, `get_embeddings`).
 
-## 5. API JWT (`src.api.main:app`)
+## 5. SQL Agent (consultas de negocio en lenguaje natural)
+
+Grafo independiente en `src/sql_agent/graph.py` — no es un agente ReAct (`create_react_agent`)
+como los de `src/agents/`, sino un `StateGraph` a medida con su propio loop de
+autocorrección SQL:
+
+```mermaid
+flowchart TD
+    Start --> ListTables[list_tables_tool]
+    ListTables --> GetSchemaModel[model_get_schema]
+    GetSchemaModel --> GetSchema[get_schema_tool]
+    GetSchema --> QueryGen[query_gen]
+    QueryGen -->|SubmitFinalAnswer y queries_ok mayor a 0| End([END])
+    QueryGen -->|SubmitFinalAnswer y queries_ok es 0| Exigir[exigir_consulta]
+    Exigir --> QueryGen
+    QueryGen -->|ProponerConsultaSQL| Correct[correct_query]
+    QueryGen -->|Error de generacion| QueryGen
+    QueryGen -->|MAX_SQL_AGENT_ITERACIONES alcanzado| Retry[retry_agotado]
+    Correct --> Execute[execute_query]
+    Execute --> QueryGen
+    Retry --> End
+```
+
+**Endpoint:** `POST /sql-queries` (async, mismo patrón `BackgroundTasks` que `/requests`) ·
+**UI:** página **Consultas SQL** · **Acceso:** solo `rol == "docente"`.
+
+Salvaguardas, ninguna depende de que el prompt se cumpla (defensa en profundidad):
+
+1. **Validación AST** (`sql_validator.py`, `sqlglot`): solo `SELECT`; rechaza DML/DDL
+   (también anidado en CTE/subquery), tablas con `schema.tabla`, y cualquier tabla fuera
+   de la whitelist de la BD de negocio.
+2. Sesión MySQL en `SET SESSION TRANSACTION READ ONLY`, independiente del validador.
+3. Ejecutor "trust no one" (`executor.py`): revalida la consulta contra la whitelist de
+   tablas justo antes de tocar la BD.
+4. **Gate de grounding** (`exigir_consulta` + tool `ProponerConsultaSQL`): el grafo cuenta
+   `queries_ok` en el estado y rechaza estructuralmente un `SubmitFinalAnswer` sin al menos
+   una consulta SQL ejecutada con éxito. Se agregó tras probar el consumo real desde la UI
+   (ver §10): `gpt-4o-mini` a veces respondía con un dato inventado en el primer turno.
+
+`AGENT_DB_URI` (BD de negocio, distinta de `DATABASE_URL`) y `MAX_SQL_AGENT_ITERACIONES`
+en `.env` (ver §8). Detalle de diseño: [arquitectura.md](arquitectura.md) §6.5.
+
+## 6. API JWT (`src.api.main:app`)
 
 ```bash
 uvicorn src.api.main:app --reload --port 8000
@@ -135,7 +179,7 @@ uvicorn src.api.main:app --reload --port 8000
 
 Swagger: `http://127.0.0.1:8000/docs` · Health: `GET /health` (incluye `llm` del registry).
 
-### 5.1 Endpoints
+### 6.1 Endpoints
 
 | Método | Ruta | Auth | Descripción |
 |---|---|---|---|
@@ -154,22 +198,26 @@ Swagger: `http://127.0.0.1:8000/docs` · Health: `GET /health` (incluye `llm` de
 | `GET` | `/requests/{id}` | Sí | Detalle + approval |
 | `POST` | `/requests/{id}/approve` | Sí + docente | HITL `si`/`no` |
 | `GET` | `/requests/{id}/events` | Sí | Event log |
+| `POST` | `/sql-queries` | Sí + docente | Pregunta en lenguaje natural a la BD de negocio (202) |
+| `GET` | `/sql-queries` | Sí + docente | Listar propias |
+| `GET` | `/sql-queries/{id}` | Sí + docente | Detalle + `sql_query` ejecutada + `respuesta_final` |
+| `GET` | `/sql-queries/{id}/events` | Sí + docente | Event log nodo a nodo del grafo |
 
 Aislamiento: todo filtrado por `user_id` del JWT.
 
-### 5.2 Solicitudes y HITL
+### 6.2 Solicitudes y HITL
 
 1. `POST /requests` `{ "peticion": "..." }` → `status: running`.
 2. Polling `GET /requests/{id}` hasta `completed` | `failed` | `waiting_approval`.
 3. Si examen: `POST /requests/{id}/approve` `{ "decision": "si" }` y volver a poll.
 
-### 5.3 API legado
+### 6.3 API legado
 
 `src.legacy_chat_api:app` — rutas `/api/v1/health`, `/chat`, `/approve`, `/ingestar`.  
 Queda como camino opcional (CLI / demos antiguas). El **Dockerfile, Compose y VPS**
 sirven la API JWT (`src.api.main:app`).
 
-## 6. UI Streamlit
+## 7. UI Streamlit
 
 Cliente HTTP puro (no importa LangGraph ni RAG):
 
@@ -188,6 +236,7 @@ streamlit run app_streamlit/Home.py
 | Asistente | Form + polling con barra de progreso; approve inline (docente) |
 | Historial | Filtro por estado; reanudar `running`; atajos accionables |
 | Aprobaciones | Contador en menú; confirmar antes de decidir |
+| Consultas SQL | Solo `docente`: pregunta a la BD de negocio, ver SQL ejecutada y pasos del grafo |
 
 UX relevante:
 
@@ -206,13 +255,15 @@ Módulos: `app_streamlit/lib/` (`api_client`, `session`, `ui`, `labels`).
 | Local (venv) | `http://127.0.0.1:8000` |
 | Compose / VPS (red Docker) | `http://asistente:8000` o `http://asistente-ia-educacion:8000` |
 
-## 7. Variables de entorno
+## 8. Variables de entorno
 
 Ver `.env.example`. Claves:
 
 | Variable | Uso |
 |---|---|
-| `DATABASE_URL` | MySQL (SQLAlchemy) |
+| `DATABASE_URL` | MySQL de metadatos de la app (SQLAlchemy) |
+| `AGENT_DB_URI` | BD de negocio que consulta el SQL Agent (usuario solo-lectura recomendado) |
+| `MAX_SQL_AGENT_ITERACIONES` | Límite del loop de autocorrección del SQL Agent (default 10) |
 | `JWT_SECRET`, `JWT_EXPIRE_MINUTES` | Auth |
 | `CORS_ORIGINS` | CORS API |
 | `LLM_PROFILE` | `cloud_openai` \| `vllm_usfq` \| `local_barato` \| `local_calidad` |
@@ -233,7 +284,7 @@ python scripts/init_db.py
 python scripts/seed_demo_kb.py
 ```
 
-### 7.1 Switch OpenAI pagado ↔ vLLM USFQ
+### 8.1 Switch OpenAI pagado ↔ vLLM USFQ
 
 El cambio se realiza únicamente con `LLM_PROFILE`; agentes, orquestador y contratos
 Pydantic siguen consumiendo `get_chat_model()` / `get_embeddings()`.
@@ -253,9 +304,9 @@ Verifica model IDs y conectividad con `python scripts/smoke_vllm_usfq.py`.
 Al cambiar de embedding, reprocesa la KB; el retriever filtra por modelo y no mezcla
 vectores incompatibles.
 
-## 8. Docker y VPS
+## 9. Docker y VPS
 
-### 8.1 Imagen / Compose
+### 9.1 Imagen / Compose
 
 - Base: `python:3.13-slim`
 - CMD por defecto: API JWT `uvicorn src.api.main:app --host 0.0.0.0 --port 8000`
@@ -274,8 +325,10 @@ curl http://localhost:8000/health
 ```
 
 En Compose, `STREAMLIT_API_BASE_URL=http://asistente:8000` (nombre del servicio).
+El SQL Agent corre **en el mismo contenedor API**; si se usa, `AGENT_DB_URI` debe estar
+en el `.env` que lee ese servicio (no necesita un contenedor propio).
 
-### 8.2 Despliegue remoto
+### 9.2 Despliegue remoto
 
 Helper: `./scripts/remote.sh deploy|build|push-image|rsync|restart|health`.
 
@@ -299,11 +352,14 @@ Solo `.env` o arranque (sin rebuild):
 Variables de despliegue: `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLOY_PATH`,
 `API_BASE_URL`, `DOCKER_IMAGE`, `CONTAINER_NAME`, `UI_CONTAINER_NAME`, `DOCKER_NETWORK`.
 
-## 9. Pruebas
+## 10. Pruebas
 
 ```bash
 # Unitarios / contratos / registry
 pytest tests/test_llm_registry.py tests/test_schemas_contratos.py -v
+
+# SQL Agent: validador AST (puro, sin LLM/BD) + grafo + API (requieren OPENAI_API_KEY)
+pytest tests/test_sql_validator.py tests/test_sql_agent_graph.py tests/test_sql_agent_api.py -v
 
 # Smoke API (requiere MySQL + .env)
 python scripts/run_test_pipeline.py
@@ -312,7 +368,16 @@ python scripts/run_test_pipeline.py
 Postman: [`postman/Asistente-IA-Educacion.postman_collection.json`](../postman/Asistente-IA-Educacion.postman_collection.json)  
 (puede incluir rutas legado `/api/v1/*`; para JWT usar Swagger `/docs` o Streamlit).
 
-## 10. CLI local (legado)
+### 10.1 Verificación manual del SQL Agent en el navegador
+
+Probar el grafo solo con pytest no detecta todo: el LLM puede comportarse distinto en
+la práctica (parallel tool-calling, respuestas sin evidencia). Se verificó levantando
+API + Streamlit reales y automatizando Chromium (Playwright) con un docente autenticado
+haciendo una pregunta real contra una BD SQLite de prueba. Esa corrida encontró y llevó a
+corregir el gate de grounding (`exigir_consulta` / `ProponerConsultaSQL`, ver §5 y
+[arquitectura.md](arquitectura.md) §6.5) antes de darlo por completo.
+
+## 11. CLI local (legado)
 
 ```bash
 python main.py ingestar
@@ -323,7 +388,7 @@ python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 
 Usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
 
-## 11. Limitaciones conocidas del MVP
+## 12. Limitaciones conocidas del MVP
 
 - PDFs vía API: hoy el alta es texto (`content_text`); OCR no incluido.
 - Examen aprobado se guarda en memoria LTM; reindexación automática en `examenes` pendiente.
@@ -332,8 +397,11 @@ Usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
 - Un worker Uvicorn; cargas concurrentes pesadas no recomendadas en VPS pequeño
   (API ~700m + UI ~400m).
 - Streamlit no se sirve detrás de TLS/reverse proxy en el script actual (HTTP plano).
+- SQL Agent: una única `AGENT_DB_URI` institucional por defecto (override por request
+  posible, no expuesto aún en la UI); sin selección semántica de tablas (schema linking)
+  para esquemas de negocio muy grandes — hoy lista todas las tablas y deja elegir al modelo.
 
-## 12. Relación con la documentación de arquitectura
+## 13. Relación con la documentación de arquitectura
 
 | Directriz ([arquitectura.md](arquitectura.md)) | Dónde está en código |
 |---|---|
@@ -344,3 +412,4 @@ Usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
 | Human-in-the-loop | nodo `aprobacion_docente` + `POST /requests/{id}/approve` |
 | Cliente UI | `app_streamlit/` |
 | Memoria corto/largo plazo | checkpointer LangGraph + `src/memory/` |
+| SQL Agent + validación AST | `src/sql_agent/graph.py`, `sql_validator.py`, `executor.py` |

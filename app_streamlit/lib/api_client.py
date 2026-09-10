@@ -144,3 +144,22 @@ class ApiClient:
 
     def events(self, request_id: int) -> list[dict[str, Any]]:
         return self._request("GET", f"/requests/{request_id}/events")
+
+    # --- SQL Agent (consultas en lenguaje natural a la BD de negocio) ---
+
+    def create_sql_query(
+        self, pregunta: str, agent_db_uri: str | None = None
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"pregunta": pregunta}
+        if agent_db_uri:
+            body["agent_db_uri"] = agent_db_uri
+        return self._request("POST", "/sql-queries", json=body)
+
+    def get_sql_query(self, query_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/sql-queries/{query_id}")
+
+    def list_sql_queries(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/sql-queries")
+
+    def sql_query_events(self, query_id: int) -> list[dict[str, Any]]:
+        return self._request("GET", f"/sql-queries/{query_id}/events")

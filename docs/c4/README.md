@@ -7,7 +7,7 @@ Modelo C4 del **Asistente IA para Educación** (API JWT + Streamlit + MySQL + or
 | 1 — Contexto | [01-contexto.md](01-contexto.md) | ¿Quién usa el sistema y con qué sistemas externos habla? |
 | 2 — Contenedores | [02-contenedores.md](02-contenedores.md) | ¿Cuáles son las aplicaciones/servicios desplegables? |
 | 3 — Componentes | [03-componentes.md](03-componentes.md) | ¿Cómo se organiza el interior de la API? |
-| 4 — Código (vista) | [04-codigo.md](04-codigo.md) | ¿Qué módulos implementan el orquestador y el RAG? |
+| 4 — Código (vista) | [04-codigo.md](04-codigo.md) | ¿Qué módulos implementan el orquestador, el SQL Agent y el RAG? |
 
 Documentación relacionada:
 

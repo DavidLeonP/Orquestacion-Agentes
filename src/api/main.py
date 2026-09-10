@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routers import auth, knowledge, requests
+from src.api.routers import auth, knowledge, requests, sql_agent
 from src.config import CORS_ORIGINS
 
 app = FastAPI(
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(knowledge.router)
 app.include_router(requests.router)
+app.include_router(sql_agent.router)
 
 
 @app.get("/health")

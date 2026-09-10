@@ -17,3 +17,4 @@ streamlit>=1.40
 python-jose>=3.3
 passlib>=1.7
 bcrypt>=4.0,<4.1
+sqlglot>=25.0
