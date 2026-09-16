@@ -55,7 +55,7 @@ def test_perfil_local_calidad():
 def test_perfil_vllm_usfq_usa_urls_separadas():
     sel = resolve_selection(profile="vllm_usfq")
     assert sel.llm_provider == "openai_compatible"
-    assert sel.llm_model == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert sel.llm_model == "zai-org/GLM-5.3-Flash"
     assert sel.llm_base_url == "http://172.28.230.10:12555/v1"
     assert sel.embedding_provider == "openai_compatible"
     assert sel.embedding_model == "BAAI/bge-m3"

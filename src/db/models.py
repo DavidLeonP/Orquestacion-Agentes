@@ -15,9 +15,13 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.session import Base
+
+# Text MySQL = 64KB; módulos PDF/vídeo necesitan LONGTEXT
+LongText = Text().with_variant(LONGTEXT(), "mysql")
 
 
 class User(Base):
@@ -44,7 +48,7 @@ class Document(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     indice: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
-    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_text: Mapped[str] = mapped_column(LongText, nullable=False)
     content_type: Mapped[str] = mapped_column(String(100), default="text/plain")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     metadatos: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -104,7 +108,7 @@ class Request(Base):
     peticion: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="running", index=True)
     agente_destino: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    respuesta_final: Mapped[str | None] = mapped_column(Text, nullable=True)
+    respuesta_final: Mapped[str | None] = mapped_column(LongText, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -139,8 +143,8 @@ class Approval(Base):
     request_id: Mapped[int] = mapped_column(
         ForeignKey("requests.id", ondelete="CASCADE"), unique=True
     )
-    borrador: Mapped[str] = mapped_column(Text, nullable=False)
-    veredicto: Mapped[str] = mapped_column(Text, nullable=False)
+    borrador: Mapped[str] = mapped_column(LongText, nullable=False)
+    veredicto: Mapped[str] = mapped_column(LongText, nullable=False)
     decision: Mapped[str] = mapped_column(String(20), default="pending")
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

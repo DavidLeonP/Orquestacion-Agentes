@@ -13,6 +13,15 @@ DIR_STORAGE = RAIZ / "storage"
 DIR_CHROMA = DIR_STORAGE / "chroma"
 DIR_MEMORIA = DIR_STORAGE / "memoria"
 DIR_LOGS = DIR_STORAGE / "logs"
+DIR_EXTRACTED = DIR_STORAGE / "extracted"
+DIR_METRICS = DIR_STORAGE / "metrics"
+
+# ASR (vídeo → texto). openai | openai_compatible (infra universidad)
+WHISPER_PROVIDER = os.getenv("WHISPER_PROVIDER", "openai")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
+WHISPER_BASE_URL = os.getenv("WHISPER_BASE_URL")
+WHISPER_API_KEY = os.getenv("WHISPER_API_KEY")
+WHISPER_TIMEOUT_SEC = float(os.getenv("WHISPER_TIMEOUT_SEC", "600"))
 
 # Perfil de recursos: cloud_openai | vllm_usfq | local_barato | local_calidad
 LLM_PROFILE = os.getenv("LLM_PROFILE", "cloud_openai")

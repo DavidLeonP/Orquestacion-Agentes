@@ -5,3 +5,5 @@ __pycache__/
 storage/
 .chroma/
 docs/_pipeline_run_raw.json
+.DS_Store
+contabilidadFinaciera/

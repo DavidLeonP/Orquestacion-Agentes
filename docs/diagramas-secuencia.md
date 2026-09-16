@@ -71,6 +71,39 @@ sequenceDiagram
     API-->>C: 200 procesados errores detalle
 ```
 
+## 2b. Módulo del profesor: PDF + vídeo → embeddings
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Ops as Script_u_Ops
+    participant Ext as extractors
+    participant FF as ffmpeg
+    participant W as Whisper_API
+    participant Pipe as mysql_pipeline
+    participant Emb as Embeddings
+    participant DB as MySQL
+
+    Ops->>Ext: estimate_module_ingest dry_run
+    Ext-->>Ops: inventario + coste OpenAI vs USFQ
+
+    Ops->>Ext: transcribe_and_index_module
+    Ext->>Ext: PDF pypdf extract_text
+    Ext->>FF: audio mono 16kHz segmentos
+    loop cada segmento menor a 25MB
+        Ext->>W: POST /audio/transcriptions
+        W-->>Ext: texto
+    end
+    Ext->>Ext: storage/extracted/modulo/*.txt
+    Ext->>DB: UPSERT documents pending
+    Ext->>Pipe: indexar_documento
+    Pipe->>Pipe: split 1000/150
+    Pipe->>Emb: embed_documents
+    Pipe->>DB: chunks + chunk_embeddings
+    Pipe->>DB: status indexed
+    Ext-->>Ops: metrics JSON
+```
+
 ## 3. Solicitud alumno / tutoría (sin HITL)
 
 ```mermaid
@@ -204,6 +237,50 @@ sequenceDiagram
     U2->>API: GET /knowledge/documents JWT user_id=2
     API->>DB: SELECT documents WHERE user_id=2
     API-->>U2: solo docs propios
+```
+
+## 7. Interacción de agentes (router → tools → RAG)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Cliente
+    participant API as FastAPI
+    participant Orq as Orquestador
+    participant R as router
+    participant Ag as Agente_ReAct
+    participant T as Tools_RAG
+    participant Ret as Retriever_hibrido
+    participant DB as MySQL
+    participant LLM as Chat_model
+
+    C->>API: POST /requests JWT
+    API->>Orq: background stream
+    Orq->>R: clasificar
+    alt rol alumno
+        R-->>Orq: agente_destino=tutor regla
+    else rol docente
+        R->>LLM: DecisionRouter estructurado
+        LLM-->>R: curriculum exam_generator rubric tutor
+        R-->>Orq: agente_destino
+    end
+    Orq->>Ag: ejecutar_agente peticion
+    loop ReAct hasta respuesta o max iter
+        Ag->>LLM: thought / action
+        LLM-->>Ag: tool_call o Final Answer
+        opt tool RAG
+            Ag->>T: buscar_apuntes u otras
+            T->>Ret: query + user_id ContextVar
+            Ret->>DB: BM25 + cosine model activo
+            Ret-->>T: top-k con fuentes
+            T-->>Ag: evidencia
+        end
+    end
+    opt exam_generator
+        Orq->>Ag: Rubric valida borrador
+        Orq->>Orq: interrupt HITL si procede
+    end
+    Orq-->>API: respuesta_final o waiting_approval
 ```
 
 ## Leyenda de estados de `requests`

@@ -8,8 +8,10 @@ from pathlib import Path
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+PROJECT_ROOT = ROOT.parent
+for _p in (ROOT, PROJECT_ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from lib.api_client import ApiError
 from lib.labels import doc_status_label, indice_hint, indice_label
@@ -22,7 +24,9 @@ render_sidebar()
 
 st.title("Conocimiento")
 st.caption(
-    "Tu material privado. Sube documentos y luego **indexa** para que el asistente los use."
+    "Tu material privado. Sube documentos y luego **indexa** para que el asistente los use. "
+    "PDF se extrae a texto al subir. Vídeos de módulos del profesor: usa "
+    "`python scripts/estimate_module_ingest.py` (métricas) o `--extract` (transcripción)."
 )
 
 indice_options = {indice_label(i): i for i in INDICES}
@@ -43,15 +47,34 @@ try:
         st.subheader("Añadir documento")
         with st.form("new_doc"):
             filename = st.text_input("Nombre de archivo", value="apuntes.txt")
-            uploaded = st.file_uploader("Subir .txt / .md (opcional)", type=["txt", "md"])
+            uploaded = st.file_uploader(
+                "Subir .txt / .md / .pdf (opcional)",
+                type=["txt", "md", "pdf"],
+            )
             content = st.text_area("Contenido", height=220)
             submit = st.form_submit_button("Crear", use_container_width=True)
         if submit:
             text = content
             name = filename.strip() or "documento.txt"
             if uploaded is not None:
-                text = uploaded.read().decode("utf-8", errors="replace")
                 name = uploaded.name or name
+                raw = uploaded.read()
+                if name.lower().endswith(".pdf"):
+                    import tempfile
+                    from pathlib import Path as _Path
+
+                    from src.ingestion.extractors.pdf import extraer_pdf
+
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                        tmp.write(raw)
+                        tmp_path = _Path(tmp.name)
+                    try:
+                        extr = extraer_pdf(tmp_path, dry_run=False)
+                        text = extr.content_text
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+                else:
+                    text = raw.decode("utf-8", errors="replace")
             if not text.strip():
                 st.warning("El contenido no puede estar vacío.")
             else:

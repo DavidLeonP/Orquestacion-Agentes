@@ -2,6 +2,7 @@
 
 Uso:
   python main.py ingestar                    Construye los índices RAG
+  python main.py estimar-modulo [ruta]       Métricas PDF/vídeo sin embeddings
   python main.py docente "petición"          Petición como docente
   python main.py alumno "petición" [id]      Petición como alumno
   python main.py demo                        Ejecuta los escenarios de ejemplo
@@ -122,6 +123,14 @@ def main() -> None:
         from src.ingestion.pipeline import ingestar
 
         ingestar()
+    elif comando in {"estimar-modulo", "estimar_modulo"}:
+        import runpy
+        from pathlib import Path
+
+        script = Path(__file__).resolve().parent / "scripts" / "estimate_module_ingest.py"
+        resto = sys.argv[2:] or ["contabilidadFinaciera", "--write-doc"]
+        sys.argv = [str(script), *resto]
+        runpy.run_path(str(script), run_name="__main__")
     elif comando == "docente" and len(sys.argv) >= 3:
         _ejecutar(sys.argv[2], "docente")
     elif comando == "alumno" and len(sys.argv) >= 3:

@@ -4,9 +4,11 @@
 |---|---|
 | [arquitectura.md](arquitectura.md) | Diseño Agentic AI: orquestación, KB MySQL por usuario, model registry, stack |
 | [implementacion.md](implementacion.md) | Código, API JWT, Streamlit, Docker, VPS y pruebas |
-| [diagramas-secuencia.md](diagramas-secuencia.md) | Auth, ingest, tutoría, examen HITL, aislamiento |
+| [diagramas-secuencia.md](diagramas-secuencia.md) | Auth, ingest, medios PDF/vídeo, tutoría, examen HITL, agentes, aislamiento |
 | [c4/](c4/) | Modelo C4 (contexto → código) |
 | [resultados-pipeline.md](resultados-pipeline.md) | Resultados de ejecución del pipeline vía API |
+| [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md) | Métricas PDF/vídeo: OpenAI vs vLLM USFQ |
+| [revision-implementacion-agentes.md](revision-implementacion-agentes.md) | Salida del pipeline de revisión de agentes |
 
 ## Arranque rápido (camino actual)
 

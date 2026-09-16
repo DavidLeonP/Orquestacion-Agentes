@@ -160,7 +160,21 @@ Cuatro índices lógicos; el contenido es **privado por usuario**:
 
 Implementación: `src/rag/mysql_store.py` + tools en `src/rag/tools.py` (scoped por ContextVar).
 
-### 4.4 Grounding estricto
+### 4.5 Ingesta de módulos del profesor (PDF / vídeo)
+
+Además del alta manual de texto, el sistema acepta **módulos de conocimiento**
+(p. ej. `contabilidadFinaciera/`) con PDF y grabaciones MP4:
+
+1. Extracción PDF (`src/ingestion/extractors/pdf.py`, pypdf).
+2. Vídeo → audio (ffmpeg / imageio-ffmpeg) → ASR Whisper (`extractors/video.py`).
+3. Textos en `storage/extracted/<modulo>/`.
+4. `Document(status=pending)` + `indexar_documento` → chunks + embeddings MySQL.
+5. Los agentes consumen el material vía `buscar_apuntes` (índice `apuntes`).
+
+Scripts: `estimate_module_ingest.py`, `transcribe_and_index_module.py`,
+`review_agents_pipeline.py`.
+
+### 4.6 Grounding estricto
 
 Los agentes no responden "en general": deben apoyarse en la KB del usuario y citar fuentes.
 Si no hay evidencia, lo declaran.
@@ -262,7 +276,7 @@ sequenceDiagram
 | Perfil | Chat | Embeddings |
 |---|---|---|
 | `cloud_openai` (default) | `gpt-4o-mini` | `text-embedding-3-small` |
-| `vllm_usfq` | `deepseek-ai/DeepSeek-V4-Flash-0731` (`:12555`) | `BAAI/bge-m3` (`:12556`) |
+| `vllm_usfq` | `zai-org/GLM-5.3-Flash` (`:12555`) | `BAAI/bge-m3` (`:12556`) |
 | `local_barato` | Ollama `qwen2.5:3b` | Ollama `nomic-embed-text` |
 | `local_calidad` | Ollama `qwen2.5:7b` | Ollama `nomic-embed-text` |
 
@@ -279,6 +293,7 @@ Variables clave en `.env`:
 
 - `LLM_PROFILE` (`cloud_openai` \| `vllm_usfq` \| `local_barato` \| `local_calidad`)
 - Overrides: `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OLLAMA_BASE_URL`
+- ASR módulos vídeo: `WHISPER_PROVIDER`, `WHISPER_MODEL`, `WHISPER_BASE_URL` (opcional)
 - `OPENAI_API_KEY` (requerido en perfil cloud)
 - `DATABASE_URL` (MySQL remoto)
 - `JWT_SECRET`, `JWT_EXPIRE_MINUTES`
@@ -288,8 +303,18 @@ Variables clave en `.env`:
 
 Inicialización: `python scripts/init_db.py`. Seed demo: `python scripts/seed_demo_kb.py`.
 
+Módulos del profesor (PDF/vídeo):
+
+```bash
+python scripts/estimate_module_ingest.py contabilidadFinaciera --write-doc
+python scripts/transcribe_and_index_module.py          # Whisper + embed + MySQL
+python scripts/review_agents_pipeline.py --write-doc   # revisión agentes + RAG
+```
+
 ## 10. Diagramas adicionales
 
-- [diagramas-secuencia.md](diagramas-secuencia.md) — auth, ingest, tutoría, examen HITL, aislamiento
+- [diagramas-secuencia.md](diagramas-secuencia.md) — auth, ingest, medios, tutoría, examen HITL, aislamiento
 - [c4/](c4/) — arquitectura C4 (contexto, contenedores, componentes, código)
+- [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md) — métricas OpenAI vs USFQ
+- [revision-implementacion-agentes.md](revision-implementacion-agentes.md) — salida del pipeline de revisión
 

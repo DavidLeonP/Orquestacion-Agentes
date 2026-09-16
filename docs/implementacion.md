@@ -316,16 +316,35 @@ Postman: [`postman/Asistente-IA-Educacion.postman_collection.json`](../postman/A
 
 ```bash
 python main.py ingestar
+python main.py estimar-modulo contabilidadFinaciera --write-doc
 python main.py demo
 python main.py docente "Estructura la unidad de electricidad"
 python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 ```
 
-Usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
+`ingestar` usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
+`estimar-modulo` inventaría PDF/vídeo y calcula coste OpenAI vs USFQ **sin** embeddings.
+
+Transcribir e indexar (OpenAI Whisper + embeddings):
+
+```bash
+python scripts/transcribe_and_index_module.py
+python scripts/review_agents_pipeline.py --write-doc
+```
 
 ## 11. Limitaciones conocidas del MVP
 
-- PDFs vía API: hoy el alta es texto (`content_text`); OCR no incluido.
+- PDFs: extracción de capa de texto vía `src/ingestion/extractors/pdf.py` (Streamlit y
+  módulos); OCR de escaneados no incluido. `documents.content_text` es **LONGTEXT**
+  (evita truncado a 64 KB de `TEXT`).
+- Vídeos de módulos del profesor: transcripción vía
+  `src/ingestion/extractors/video.py` (Whisper cloud o endpoint universidad). La UI no
+  sube MP4; usar `scripts/transcribe_and_index_module.py` /
+  `scripts/estimate_module_ingest.py`.
+- Coste embeddings vs ASR: ver
+  [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md).
+- Revisión de agentes: `scripts/review_agents_pipeline.py` →
+  [revision-implementacion-agentes.md](revision-implementacion-agentes.md).
 - Examen aprobado se guarda en memoria LTM; reindexación automática en `examenes` pendiente.
 - Checkpointer `MemorySaver` in-process: se pierde al reiniciar el proceso API (HITL
   entre reinicios no se reanuda).

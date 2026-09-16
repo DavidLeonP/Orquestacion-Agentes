@@ -23,11 +23,13 @@ Container_Boundary(core, "Núcleo multi-agente") {
     Component(tools, "Tools RAG", "src/rag/tools.py", "buscar_* scoped user_id")
     Component(retriever, "Retriever híbrido", "src/rag/mysql_store.py", "BM25 + cosine + RRF")
     Component(ingest, "Pipeline ingest", "src/ingestion/mysql_pipeline.py", "chunk + embed + persist")
+    Component(media, "Extractores medios", "src/ingestion/extractors/*", "PDF pypdf + vídeo Whisper")
+    Component(modload, "Module media", "src/ingestion/module_media.py", "inventario, dry-run, commit MySQL")
     Component(mem, "Memoria LTM", "src/memory/mysql_store.py", "feedback, perfil, histórico")
 }
 
 ContainerDb(mysql, "MySQL", "Persistencia")
-System_Ext(llmprov, "OpenAI u Ollama", "LLM / embeddings")
+System_Ext(llmprov, "OpenAI / vLLM / Ollama", "LLM / embeddings / ASR")
 
 Rel(auth_r, sec, "usa")
 Rel(auth_r, deps, "usa")
@@ -45,6 +47,9 @@ Rel(retriever, mysql, "SELECT chunks/embeddings")
 Rel(retriever, registry, "modelo embedding activo")
 Rel(ingest, mysql, "INSERT/UPDATE docs chunks")
 Rel(ingest, registry, "embeddings")
+Rel(modload, media, "extrae PDF/vídeo")
+Rel(media, llmprov, "Whisper / ASR compatible")
+Rel(modload, ingest, "indexar tras texto")
 Rel(registry, llmprov, "API compatible OpenAI")
 Rel(graph, mem, "guardar / perfil")
 Rel(mem, mysql, "INSERT memoria_*")
@@ -58,7 +63,7 @@ Rel(know_r, mysql, "documents")
 | Componente | Tablas principales |
 |------------|-------------------|
 | Auth | `users` |
-| Knowledge / Ingest | `documents`, `chunks`, `chunk_embeddings` |
+| Knowledge / Ingest / Module media | `documents`, `chunks`, `chunk_embeddings` |
 | Requests / Runner | `requests`, `request_events`, `approvals` |
 | Memoria | `memory_feedback`, `memory_perfil_alumno`, `memory_historico` |
 

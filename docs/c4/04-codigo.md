@@ -40,6 +40,22 @@ flowchart TD
 **Archivo:** `src/ingestion/mysql_pipeline.py`  
 **Embeddings:** `src/llm/registry.py` (`active_embedding_model`)
 
+## 4.2b Medios → texto (antes del ingest)
+
+```mermaid
+flowchart LR
+    PDF[PDF] --> Pypdf[extractors/pdf.py]
+    MP4[MP4] --> FF[ffmpeg audio]
+    FF --> Whisper[Whisper ASR]
+    Pypdf --> TXT[storage/extracted]
+    Whisper --> TXT
+    TXT --> Doc[Document pending]
+    Doc --> Pipe[mysql_pipeline]
+```
+
+**Archivos:** `src/ingestion/extractors/`, `module_media.py`, `cost_estimate.py`  
+**Scripts:** `transcribe_and_index_module.py`, `estimate_module_ingest.py`, `review_agents_pipeline.py`
+
 ## 4.3 Retriever híbrido
 
 ```mermaid
@@ -64,11 +80,11 @@ flowchart TD
 | `src/orchestrator/` | Grafo LangGraph |
 | `src/agents/` | Prompts, ReAct y contratos Pydantic |
 | `src/rag/` | Contexto user_id + retriever MySQL + tools |
-| `src/ingestion/` | Indexación a MySQL |
+| `src/ingestion/` | Indexación a MySQL + extractores PDF/vídeo |
 | `src/memory/` | LTM MySQL / JSON legacy |
 | `src/observability/` | Trazas JSONL + LangSmith |
 | `app_streamlit/` | UI cliente HTTP |
-| `scripts/` | Ops y pipeline de pruebas |
+| `scripts/` | Ops, transcribe/index, review agentes, estimate coste |
 | `tests/` | Pytest (registry, contratos, smoke API) |
 
 ## 4.5 Contrato de una solicitud (estados)

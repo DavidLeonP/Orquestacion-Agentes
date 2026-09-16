@@ -26,7 +26,7 @@ PROFILES: dict[str, dict[str, str]] = {
     },
     "vllm_usfq": {
         "llm_provider": "openai_compatible",
-        "llm_model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "llm_model": "zai-org/GLM-5.3-Flash",
         "llm_base_url": "http://172.28.230.10:12555/v1",
         "embedding_provider": "openai_compatible",
         "embedding_model": "BAAI/bge-m3",
