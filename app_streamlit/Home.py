@@ -44,13 +44,47 @@ if is_authenticated():
     )
     st.caption(f"Modelo activo: **{model_title}** · {model_detail}")
 
+    sql_cfg = (health or {}).get("sql_agent") if isinstance(health, dict) else None
+    if is_docente() and isinstance(sql_cfg, dict):
+        if sql_cfg.get("configured"):
+            st.caption("SQL Agent: disponible (BD de negocio configurada).")
+        else:
+            st.caption("SQL Agent: sin `AGENT_DB_URI` en el servidor.")
+
     st.divider()
-    st.subheader("Empezar")
-    st.page_link(
-        "pages/2_Asistente.py",
-        label="Ir al Asistente →",
-        use_container_width=True,
-    )
+    st.subheader("Agentes")
+    if is_docente():
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.container(border=True):
+                st.markdown("**💬 Asistente multi-agente**")
+                st.caption(
+                    "Curriculum, Exam Generator, Rúbrica y Tutor. "
+                    "El orquestador elige el agente según tu petición."
+                )
+                st.page_link(
+                    "pages/2_Asistente.py",
+                    label="Abrir Asistente →",
+                    use_container_width=True,
+                )
+        with c2:
+            with st.container(border=True):
+                st.markdown("**🗄️ Agente SQL**")
+                st.caption(
+                    "Preguntas en lenguaje natural a la BD académica "
+                    "(matrícula, notas, asistencia). Solo lectura."
+                )
+                st.page_link(
+                    "pages/5_Consultas_SQL.py",
+                    label="Abrir Consultas SQL →",
+                    use_container_width=True,
+                )
+    else:
+        st.page_link(
+            "pages/2_Asistente.py",
+            label="Ir al Tutor →",
+            use_container_width=True,
+        )
 
     if is_docente() and pending:
         st.info(f"Tienes **{pending}** borrador(es) pendiente(s) de aprobación.")
@@ -70,7 +104,9 @@ if is_authenticated():
         and item[0] != "pages/2_Asistente.py"
         and not (item[0].endswith("4_Aprobaciones.py") and not is_docente())
         and not (item[0].endswith("5_Consultas_SQL.py") and not is_docente())
+        and not (item[0].endswith("5_Consultas_SQL.py") and is_docente())
     ]
+    # Docentes ya tienen SQL arriba; no duplicar en "Otras"
     for i, (path, label, icon) in enumerate(links):
         with cols[i % 2]:
             with st.container(border=True):

@@ -31,18 +31,20 @@ st.caption(f"Modelo: **{model_title}** · {model_detail}")
 
 if is_docente():
     placeholders = [
-        "Genera un examen de 6 preguntas sobre electricidad para 3º ESO",
-        "Estructura la unidad de circuitos en sesiones",
+        "Genera un examen de 6 preguntas sobre finanzas estratégicas y costos de operación",
+        "Estructura en 4 sesiones una unidad de Finanzas Estratégicas con la guía didáctica",
         "Propón una rúbrica de evaluación para el proyecto de tecnología",
     ]
-    st.markdown("**Ideas rápidas (docente)**")
+    st.markdown(
+        "**Ideas rápidas (docente)** — agentes: Curriculum · Exam Generator · Rúbrica · Tutor"
+    )
 else:
     placeholders = [
-        "¿Qué es la ley de Ohm?",
-        "Explícame la diferencia entre serie y paralelo",
-        "Ayúdame a estudiar circuitos eléctricos",
+        "Con los apuntes de Finanzas Estratégicas, ¿qué es un costo de operación?",
+        "Explícame la diferencia entre costo de producción y de operación",
+        "Ayúdame a estudiar con ejemplos de la clase grabada",
     ]
-    st.markdown("**Ideas rápidas (alumno)**")
+    st.markdown("**Ideas rápidas (alumno)** — agente Tutor")
 
 cols = st.columns(len(placeholders))
 for i, text in enumerate(placeholders):

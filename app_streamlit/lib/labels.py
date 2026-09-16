@@ -15,11 +15,11 @@ NAV_ITEMS: list[tuple[str, str, str]] = [
 ]
 
 NAV_DESCRIPTIONS: dict[str, str] = {
-    "pages/1_Conocimiento.py": "Sube y gestiona apuntes, exámenes y rúbricas.",
-    "pages/2_Asistente.py": "Haz una pregunta o pide generar material.",
+    "pages/1_Conocimiento.py": "Sube PDF/apuntes e indexa la KB del asistente.",
+    "pages/2_Asistente.py": "Orquestador: Curriculum, Exam, Rúbrica y Tutor.",
     "pages/3_Historial.py": "Revisa peticiones anteriores y su resultado.",
     "pages/4_Aprobaciones.py": "Aprueba o rechaza borradores de examen.",
-    "pages/5_Consultas_SQL.py": "Pregunta en lenguaje natural a la BD académica (solo docentes).",
+    "pages/5_Consultas_SQL.py": "Agente SQL: preguntas NL a la BD académica (docentes).",
 }
 
 SQL_QUERY_STATUS_LABELS: dict[str, str] = {

@@ -31,6 +31,25 @@ app.include_router(sql_agent.router)
 
 @app.get("/health")
 def health():
+    from src import config
     from src.llm import describe_llm
 
-    return {"status": "ok", "llm": describe_llm()}
+    agent_db = (config.AGENT_DB_URI or "").strip()
+    dialect = None
+    if agent_db:
+        dialect = agent_db.split(":", 1)[0]
+    return {
+        "status": "ok",
+        "llm": describe_llm(),
+        "sql_agent": {
+            "configured": bool(agent_db),
+            "dialect": dialect,
+        },
+        "agents": [
+            "curriculum",
+            "exam_generator",
+            "rubric",
+            "tutor",
+            "sql_agent",
+        ],
+    }
