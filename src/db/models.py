@@ -151,6 +151,46 @@ class Approval(Base):
     request: Mapped[Request] = relationship(back_populates="approval")
 
 
+class SqlQuery(Base):
+    """Pregunta en lenguaje natural resuelta por el SQL Agent contra la BD de negocio."""
+
+    __tablename__ = "sql_queries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    thread_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    pregunta: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="running", index=True)
+    sql_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    respuesta_final: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship()
+    events: Mapped[list[SqlQueryEvent]] = relationship(
+        back_populates="sql_query", cascade="all, delete-orphan"
+    )
+
+
+class SqlQueryEvent(Base):
+    """Traza nodo a nodo del grafo del SQL Agent para una `SqlQuery`."""
+
+    __tablename__ = "sql_query_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sql_query_id: Mapped[int] = mapped_column(
+        ForeignKey("sql_queries.id", ondelete="CASCADE"), index=True
+    )
+    tipo: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    sql_query: Mapped[SqlQuery] = relationship(back_populates="events")
+
+
 class MemoryFeedback(Base):
     __tablename__ = "memory_feedback"
 

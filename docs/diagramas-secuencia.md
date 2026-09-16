@@ -1,6 +1,7 @@
 # Diagramas de secuencia
 
-Flujos principales del backend (API REST + LangGraph + MySQL).  
+Flujos principales del backend (API REST + LangGraph + MySQL), incluidas las
+consultas en lenguaje natural del SQL Agent contra la BD de negocio.  
 El cliente de referencia es **Streamlit** (`app_streamlit/`), que solo dispara estas
 llamadas HTTP; también aplican a Postman/scripts.
 
@@ -218,7 +219,54 @@ sequenceDiagram
     API-->>C: 200 document_id chunks status
 ```
 
-## 6. Aislamiento multi-usuario (consulta RAG)
+## 6. Consulta SQL en lenguaje natural (SQL Agent)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as Docente
+    participant API as FastAPI_SqlAgent
+    participant BG as BackgroundTask
+    participant SQL as LangGraph_SQLAgent
+    participant LLM as OpenAI_LLM
+    participant BizDB as BD_de_negocio
+    participant DB as MySQL_metadatos
+
+    D->>API: POST /sql-queries pregunta JWT rol docente
+    API->>API: 403 si rol distinto de docente
+    API->>DB: INSERT sql_queries status running
+    API-->>D: 202 SqlQueryOut
+    API->>BG: ejecutar_query id user_id
+
+    BG->>SQL: stream pregunta
+    SQL->>BizDB: list_tables_tool + get_schema_tool
+    SQL->>LLM: query_gen decide tool
+    LLM-->>SQL: tool_call ProponerConsultaSQL o SubmitFinalAnswer
+
+    alt SubmitFinalAnswer sin consulta previa exitosa
+        SQL->>SQL: exigir_consulta rechaza, vuelve a query_gen
+    else ProponerConsultaSQL
+        SQL->>LLM: correct_query revisa sintaxis
+        SQL->>SQL: sql_validator AST solo SELECT tablas permitidas
+        alt query inválida
+            SQL-->>SQL: Error, retry query_gen
+        else query válida
+            SQL->>BizDB: execute_query SELECT solo lectura
+            BizDB-->>SQL: filas
+            SQL->>LLM: query_gen con evidencia
+        end
+    end
+
+    SQL->>DB: sql_query_events nodo_grafo por cada paso
+    LLM-->>SQL: SubmitFinalAnswer con queries_ok mayor a 0
+    BG->>DB: UPDATE status completed sql_query respuesta_final
+
+    D->>API: GET /sql-queries/id JWT
+    API->>DB: SELECT sql_query WHERE user_id
+    API-->>D: 200 completed + respuesta_final + sql_query
+```
+
+## 7. Aislamiento multi-usuario (consulta RAG)
 
 ```mermaid
 sequenceDiagram
@@ -291,3 +339,14 @@ sequenceDiagram
 | `waiting_approval` | Interrupt HITL; falta `POST .../approve` |
 | `completed` | Respuesta final disponible |
 | `failed` | Error registrado en `error` |
+
+## Leyenda de estados de `sql_queries`
+
+Sin `waiting_approval`: el SQL Agent no tiene HITL, solo el gate de grounding interno
+(`exigir_consulta`) antes de llegar a `completed`.
+
+| Status | Significado |
+|--------|-------------|
+| `running` | Grafo del SQL Agent en ejecución |
+| `completed` | `respuesta_final` y (si hubo evidencia) `sql_query` disponibles |
+| `failed` | Error registrado en `error` (p. ej. `AGENT_DB_URI` inválido, error del LLM) |

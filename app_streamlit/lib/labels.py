@@ -11,6 +11,7 @@ NAV_ITEMS: list[tuple[str, str, str]] = [
     ("pages/2_Asistente.py", "Asistente", "💬"),
     ("pages/3_Historial.py", "Historial", "📋"),
     ("pages/4_Aprobaciones.py", "Aprobaciones", "✅"),
+    ("pages/5_Consultas_SQL.py", "Consultas SQL", "🗄️"),
 ]
 
 NAV_DESCRIPTIONS: dict[str, str] = {
@@ -18,7 +19,28 @@ NAV_DESCRIPTIONS: dict[str, str] = {
     "pages/2_Asistente.py": "Haz una pregunta o pide generar material.",
     "pages/3_Historial.py": "Revisa peticiones anteriores y su resultado.",
     "pages/4_Aprobaciones.py": "Aprueba o rechaza borradores de examen.",
+    "pages/5_Consultas_SQL.py": "Pregunta en lenguaje natural a la BD académica (solo docentes).",
 }
+
+SQL_QUERY_STATUS_LABELS: dict[str, str] = {
+    "running": "En proceso",
+    "completed": "Completada",
+    "failed": "Falló",
+}
+
+SQL_QUERY_STATUS_EMOJI: dict[str, str] = {
+    "running": "🔄",
+    "completed": "✅",
+    "failed": "❌",
+}
+
+
+def sql_query_status_badge(status: str | None) -> str:
+    if not status:
+        return "Desconocido"
+    emoji = SQL_QUERY_STATUS_EMOJI.get(status, "•")
+    label = SQL_QUERY_STATUS_LABELS.get(status, status)
+    return f"{emoji} {label}"
 
 STATUS_LABELS: dict[str, str] = {
     "running": "En proceso",

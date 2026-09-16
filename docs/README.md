@@ -4,8 +4,7 @@
 |---|---|
 | [arquitectura.md](arquitectura.md) | Diseño Agentic AI: orquestación, KB MySQL por usuario, model registry, stack |
 | [implementacion.md](implementacion.md) | Código, API JWT, Streamlit, Docker, VPS y pruebas |
-| [diagramas-secuencia.md](diagramas-secuencia.md) | Auth, ingest, medios PDF/vídeo, tutoría, examen HITL, agentes, aislamiento |
-| [c4/](c4/) | Modelo C4 (contexto → código) |
+| [diagramas-secuencia.md](diagramas-secuencia.md) | Auth, ingest, medios PDF/vídeo, tutoría, examen HITL, consulta SQL, agentes, aislamiento || [c4/](c4/) | Modelo C4 (contexto → código) |
 | [resultados-pipeline.md](resultados-pipeline.md) | Resultados de ejecución del pipeline vía API |
 | [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md) | Métricas PDF/vídeo: OpenAI vs vLLM USFQ |
 | [revision-implementacion-agentes.md](revision-implementacion-agentes.md) | Salida del pipeline de revisión de agentes |
@@ -27,6 +26,10 @@ Compose (API `:8000` + UI `:8501`): `docker compose up -d --build`.
 Producción (VPS): `./scripts/remote.sh deploy` → UI `http://SSH_HOST:8501`, API `http://SSH_HOST:8000`.
 
 UX UI (resumen): modelo en sidebar, progreso por fases en Asistente, approve inline,
-filtros en Historial, confirmaciones en borrado/HITL. Detalle en [implementacion.md](implementacion.md) §6.
+filtros en Historial, confirmaciones en borrado/HITL. Detalle en [implementacion.md](implementacion.md) §7.
+
+SQL Agent (solo docentes): configura `AGENT_DB_URI` en `.env` y usa la página
+**Consultas SQL** para preguntar en lenguaje natural sobre la BD de negocio.
+Detalle en [arquitectura.md](arquitectura.md) §6.5 e [implementacion.md](implementacion.md) §5.
 
 Material de origen en `Documentacion/` (requerimiento, base de definición y papers PDF).

@@ -35,15 +35,19 @@ flowchart TB
     API --> Know[Knowledge_Ingest]
     API --> Req[Requests_Orquestador]
     API --> Hitl[Approve_HITL]
+    API --> SqlQ[SqlQueries_SQLAgent]
     Auth --> MySQL[(MySQL)]
     Know --> MySQL
     Req --> MySQL
     Hitl --> MySQL
+    SqlQ --> MySQL
     Req --> Orq[Orquestador_LangGraph]
     Orq --> CA[Curriculum]
     Orq --> EG[ExamGenerator]
     Orq --> RA[Rubric]
     Orq --> TA[Tutor]
+    SqlQ --> SQL[SQL_Agent_LangGraph]
+    SQL --> BizDB[(BD_de_negocio_AGENT_DB_URI)]
     subgraph conocimiento [Capa_Conocimiento_por_usuario]
         Docs[documents]
         Chunks[chunks]
@@ -76,6 +80,7 @@ el RAG). El CLI (`main.py`) y `src/legacy_chat_api.py` quedan como legado opcion
 | Auth | `POST /auth/register`, `/login`, `GET /auth/me` | JWT Bearer; roles `docente` / `alumno` |
 | Conocimiento | `/knowledge/...` | CRUD docs + ingest/reprocess scoped al usuario |
 | Solicitudes | `POST/GET /requests`, `/approve`, `/events` | Orquestador async + HITL |
+| SQL Agent | `POST/GET /sql-queries`, `/events` | Consultas en lenguaje natural a la BD de negocio. Solo `docente` |
 | Salud | `GET /health` | Liveness + `llm` del registry |
 
 **UI Streamlit** (`streamlit run app_streamlit/Home.py`): Home (login + CTA), Conocimiento
@@ -225,6 +230,35 @@ pipeline de ingest).
 - **Tools**: `buscar_apuntes`, `buscar_curriculo`.
 - **Salvaguardas**: no resuelve exámenes activos.
 
+### 6.5 SQL Agent
+
+- **Rol**: responde preguntas en lenguaje natural de un docente contra la BD de negocio
+  institucional (`AGENT_DB_URI`: matrícula, notas, asistencia), no la BD de metadatos de
+  la app. Portado de un SQL Agent de producción (`src/sql_agent/`), con topología propia
+  de `StateGraph` (no ReAct genérico): `list_tables_tool → get_schema_tool → query_gen`,
+  con loop de autocorrección `query_gen ↔ correct_query ↔ execute_query` acotado por
+  `MAX_SQL_AGENT_ITERACIONES`.
+- **Acceso**: restringido a `rol == "docente"` (datos institucionales, no de un alumno).
+- **Salvaguardas (defensa en profundidad, ninguna depende del prompt)**:
+  1. Validación **AST** de la consulta (`sql_validator.py`, `sqlglot`): solo `SELECT`,
+     ningún nodo DML/DDL (ni anidado en CTE/subquery), sin `schema.tabla`, tablas
+     restringidas a las de la BD de negocio.
+  2. Sesión MySQL en `SET SESSION TRANSACTION READ ONLY`, independiente del validador.
+  3. Ejecutor "trust no one" (`executor.py`): revalida la consulta contra la whitelist de
+     tablas justo antes de tocar la BD, sin confiar en el wrapper que la invocó.
+  4. `tenant` (= `user_id` del docente) obligatorio en cada capa; nunca se ejecuta SQL sin
+     un dueño explícito.
+  5. **Gate de grounding** (`exigir_consulta`, nodo del grafo): descubierto probando el
+     consumo real desde la UI — `gpt-4o-mini` a veces invoca `SubmitFinalAnswer` en el
+     primer turno con un dato inventado, saltándose la regla del prompt. El grafo lleva
+     la cuenta de `queries_ok` (consultas exitosas) en el estado y rechaza estructuralmente
+     cualquier respuesta final con `queries_ok == 0`. Para eliminar la ambigüedad de fondo
+     (el modelo debía "adivinar" que sin querer llamar a la única tool debía devolver texto
+     plano), `query_gen` tiene una segunda tool explícita, `ProponerConsultaSQL`, en vez de
+     depender de esa convención implícita.
+- **Endpoints**: `POST/GET /sql-queries`, `GET /sql-queries/{id}`, `GET /sql-queries/{id}/events`
+  (mismo patrón async + trazabilidad nodo a nodo que `/requests`).
+
 ## 7. Flujo de ejemplo: generar examen (API)
 
 ```mermaid
@@ -295,7 +329,9 @@ Variables clave en `.env`:
 - Overrides: `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OLLAMA_BASE_URL`
 - ASR módulos vídeo: `WHISPER_PROVIDER`, `WHISPER_MODEL`, `WHISPER_BASE_URL` (opcional)
 - `OPENAI_API_KEY` (requerido en perfil cloud)
-- `DATABASE_URL` (MySQL remoto)
+- `DATABASE_URL` (MySQL remoto, metadatos de la app)
+- `AGENT_DB_URI` (BD de negocio del SQL Agent; usuario solo-lectura recomendado),
+  `MAX_SQL_AGENT_ITERACIONES` (default 10)
 - `JWT_SECRET`, `JWT_EXPIRE_MINUTES`
 - `CORS_ORIGINS`
 - `STREAMLIT_API_BASE_URL` (cliente UI)
@@ -313,7 +349,7 @@ python scripts/review_agents_pipeline.py --write-doc   # revisión agentes + RAG
 
 ## 10. Diagramas adicionales
 
-- [diagramas-secuencia.md](diagramas-secuencia.md) — auth, ingest, medios, tutoría, examen HITL, aislamiento
+- [diagramas-secuencia.md](diagramas-secuencia.md) — auth, ingest, medios, tutoría, examen HITL, consulta SQL, aislamiento
 - [c4/](c4/) — arquitectura C4 (contexto, contenedores, componentes, código)
 - [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md) — métricas OpenAI vs USFQ
 - [revision-implementacion-agentes.md](revision-implementacion-agentes.md) — salida del pipeline de revisión

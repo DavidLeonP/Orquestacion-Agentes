@@ -3,7 +3,10 @@
 Sistema multi-agente (Agentic AI) que asiste a docentes y alumnado, con
 **RAG privado por usuario en MySQL**, **API REST JWT** y **UI Streamlit**.
 Cuatro agentes (Curriculum, Exam Generator, Rubric, Tutor) coordinados por
-LangGraph; LLM/embeddings vía **model registry** (OpenAI u Ollama).
+LangGraph; LLM/embeddings vía **model registry** (OpenAI u Ollama). Además,
+un **SQL Agent** independiente (`src/sql_agent/`) permite a los docentes
+consultar en lenguaje natural la base de datos académica del instituto
+(matrícula, notas, asistencia), con validación AST de solo lectura.
 
 Documentación:
 
@@ -19,12 +22,13 @@ Documentación:
 data/                  Material de ejemplo / seed (CLI legado)
   apuntes/  examenes/  rubricas/  curriculo/
 src/
-  api/                 API JWT (auth, knowledge, requests, HITL)
+  api/                 API JWT (auth, knowledge, requests, sql-queries, HITL)
   llm/                 Model registry (OpenAI / Ollama)
   ingestion/           Pipeline MySQL (+ Chroma legado)
   rag/                 Retriever MySQL híbrido + tools RAG
   agents/              Los 4 agentes especializados (ReAct) y schemas
   orchestrator/        Grafo supervisor de LangGraph
+  sql_agent/           SQL Agent: consultas en lenguaje natural a la BD de negocio
   memory/              Memoria de largo plazo
 app_streamlit/         UI Streamlit (cliente HTTP de la API)
 docs/                  Arquitectura, implementación, C4, secuencias
@@ -83,6 +87,7 @@ Cliente HTTP de la API JWT (no embebe LangGraph ni RAG):
 | Asistente | Formulario + progreso por fases; approve inline si hay HITL |
 | Historial | Filtros por estado; reanudar `running`; atajos accionables |
 | Aprobaciones | Contador en menú; confirmar antes de aprobar/rechazar |
+| Consultas SQL | Solo `docente`: pregunta en lenguaje natural a la BD de negocio |
 
 Tras el login, el sidebar muestra el modelo activo (`GET /health`) y el menú.
 Al generar un examen verás pasos y una barra de progreso; `waiting_approval` no es un cuelgue:
@@ -141,6 +146,30 @@ Embeddings de distintos modelos pueden coexistir en MySQL; la búsqueda semánti
 Toda respuesta cita las fuentes internas consultadas; los agentes no responden
 "en general".
 
+## SQL Agent (consultas de negocio en lenguaje natural)
+
+Grafo LangGraph independiente (`src/sql_agent/`, no es un agente ReAct) que traduce
+preguntas de un docente a SQL, las valida y las ejecuta contra una **BD de negocio**
+distinta de la BD de metadatos de la app (`AGENT_DB_URI` en `.env`). Endpoint:
+`POST /sql-queries` (async, igual patrón que `/requests`) · UI: página **Consultas SQL**.
+
+Restringido a `rol == "docente"`. Capas de seguridad, ninguna depende del prompt:
+
+1. **Validación AST** (`sql_validator.py`, `sqlglot`): solo `SELECT`, nunca DML/DDL
+   (tampoco anidado en CTE), sin `schema.tabla`, tablas limitadas a las de la BD de negocio.
+2. Sesión MySQL en `SET SESSION TRANSACTION READ ONLY` (segunda capa, independiente del validador).
+3. Ejecutor "trust no one" (`executor.py`): revalida la consulta justo antes de tocar la BD.
+4. **Gate de grounding** (`exigir_consulta` + tool explícita `ProponerConsultaSQL`): el
+   grafo rechaza estructuralmente una respuesta final si antes no hubo al menos una
+   consulta SQL ejecutada con éxito — evita que el LLM "responda" con un dato inventado.
+
+```env
+AGENT_DB_URI=mysql+pymysql://usuario_solo_lectura:pass@host:3306/bd_negocio
+MAX_SQL_AGENT_ITERACIONES=10
+```
+
+Detalle: [docs/arquitectura.md](docs/arquitectura.md) §6.5.
+
 ## Despliegue y actualización (VPS)
 
 Requisitos en tu Mac: [Docker Desktop](https://www.docker.com/products/docker-desktop/) en ejecución y `sshpass` (`brew install sshpass`).
@@ -186,4 +215,4 @@ URLs típicas en el VPS (sustituye el host):
 - Swagger: `http://SSH_HOST:8000/docs`
 - Health: `GET http://SSH_HOST:8000/health`
 
-Detalle técnico: [docs/implementacion.md](docs/implementacion.md) §§7–8.
+Detalle técnico: [docs/implementacion.md](docs/implementacion.md) §§8–9.

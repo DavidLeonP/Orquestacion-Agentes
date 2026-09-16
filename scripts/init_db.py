@@ -10,6 +10,8 @@ from src.db.models import (  # noqa: F401
     MemoryPerfilAlumno,
     Request,
     RequestEvent,
+    SqlQuery,
+    SqlQueryEvent,
     User,
 )
 from src.db.session import Base, engine

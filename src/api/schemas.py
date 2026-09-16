@@ -120,3 +120,34 @@ class RequestEventOut(BaseModel):
     created_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class SqlQueryCreateIn(BaseModel):
+    pregunta: str = Field(min_length=1)
+    # Opcional: apunta a una BD de negocio distinta de AGENT_DB_URI para esta
+    # consulta puntual. Nunca se persiste (viaja solo como argumento del
+    # BackgroundTask), igual que agent_db_uri en Mercurio.
+    agent_db_uri: str | None = None
+
+
+class SqlQueryOut(BaseModel):
+    id: int
+    thread_id: str
+    pregunta: str
+    status: str
+    sql_query: str | None
+    respuesta_final: str | None
+    error: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class SqlQueryEventOut(BaseModel):
+    id: int
+    tipo: str
+    payload: dict[str, Any] | None
+    created_at: datetime | None
+
+    model_config = {"from_attributes": True}

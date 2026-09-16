@@ -69,6 +69,7 @@ if is_authenticated():
         if item[0] != "Home.py"
         and item[0] != "pages/2_Asistente.py"
         and not (item[0].endswith("4_Aprobaciones.py") and not is_docente())
+        and not (item[0].endswith("5_Consultas_SQL.py") and not is_docente())
     ]
     for i, (path, label, icon) in enumerate(links):
         with cols[i % 2]:
