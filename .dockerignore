@@ -6,6 +6,11 @@ __pycache__
 storage
 .env
 *.pdf
+*.mp4
+*.mkv
+*.mov
+contabilidadFinaciera
 docs
 .cursor
 **/__pycache__
+agent-transcripts

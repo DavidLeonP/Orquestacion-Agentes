@@ -86,6 +86,7 @@ rsync_project() {
   "$SSHPASS_BIN" -e rsync -az \
     --exclude '.venv' --exclude '.git' --exclude 'storage' --exclude '__pycache__' \
     --exclude '.DS_Store' --exclude '.cursor' --exclude 'docs/_pipeline_run_raw.json' \
+    --exclude 'contabilidadFinaciera' --exclude '*.mp4' --exclude '*.mkv' \
     -e "ssh ${SSH_OPTS[*]}" \
     "$ROOT/" "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/"
 }
