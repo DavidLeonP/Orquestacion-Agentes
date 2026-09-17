@@ -1,10 +1,20 @@
 """Aplicación FastAPI — Asistente IA Educación."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routers import auth, knowledge, requests, sql_agent
 from src.config import CORS_ORIGINS
+from src.observability.trazas import configurar_observabilidad
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    configurar_observabilidad()
+    yield
+
 
 app = FastAPI(
     title="Orquestación Agentes Educación",
@@ -13,6 +23,7 @@ app = FastAPI(
         "(MySQL). Auth JWT, ingest a demanda, solicitudes y HITL de exámenes."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

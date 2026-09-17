@@ -15,7 +15,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p storage/chroma storage/chunks storage/memoria
+RUN mkdir -p storage/chroma storage/chunks storage/memoria storage/logs
 
 EXPOSE 8000 8501
 

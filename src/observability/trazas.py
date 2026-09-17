@@ -71,6 +71,7 @@ def registrar_evento(tipo: str, **datos: Any) -> None:
         "tipo": tipo,
         **datos,
     }
+    DIR_LOGS.mkdir(parents=True, exist_ok=True)
     with _ruta_log(run_id).open("a", encoding="utf-8") as f:
         f.write(json.dumps(evento, ensure_ascii=False) + "\n")
 
