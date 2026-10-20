@@ -36,6 +36,10 @@ class PreguntaExamen(BaseModel):
     enunciado: str
     puntuacion: float = Field(gt=0)
     tipo: Literal["definicion", "numerico", "esquema", "tabla", "seguridad", "otro"] = "otro"
+    con_calculo: bool = Field(
+        default=False,
+        description="La respuesta exige cálculos (cuenta como numérica aunque el tipo sea otro)",
+    )
     solucion: str = ""
 
 
@@ -66,6 +70,44 @@ class VeredictoValidacion(BaseModel):
     )
     criterios_evaluados: list[str] = Field(default_factory=list)
     resumen: str = ""
+    etapa: Literal["determinista", "llm"] = Field(
+        default="llm",
+        description="determinista: reglas en Python, sin LLM; llm: Rubric Agent",
+    )
+
+
+class CriteriosRubrica(BaseModel):
+    """Criterios objetivos de la rúbrica del docente, comprobables en Python.
+
+    Un LLM los extrae una vez de la rúbrica (src/orchestrator/criterios.py); después
+    `verificar_examen` los aplica sobre el `tipo` y la `puntuacion` de cada pregunta.
+    Los valores por defecto no exigen nada: una rúbrica sin criterios no bloquea.
+    """
+
+    requiere_seguridad: bool = Field(
+        default=False, description="La rúbrica exige al menos una pregunta de seguridad"
+    )
+    pct_min_numerico: float = Field(
+        default=0, ge=0, le=1,
+        description="Fracción mínima de la puntuación en problemas numéricos (0,4 = 40%)",
+    )
+    tipos_minimos: int = Field(
+        default=0, ge=0, le=5,
+        description="Número mínimo de tipos de pregunta distintos (teoría, numérico, esquema...)",
+    )
+
+
+class Reflexion(BaseModel):
+    """Lección de un intento rechazado (Reflexion, Shinn et al. 2023)."""
+
+    diagnostico: str = Field(description="Qué causó el rechazo, en una oración")
+    plan: str = Field(
+        description="Qué hará distinto el próximo intento, con búsquedas concretas"
+    )
+    regla_general: str = Field(
+        default="",
+        description="Regla reutilizable en otros exámenes, sin datos de esta petición",
+    )
 
 
 class PayloadAprobacion(BaseModel):
@@ -171,6 +213,8 @@ def render_examen(examen: ExamenGenerado) -> str:
 def render_veredicto(veredicto: VeredictoValidacion) -> str:
     """Vista legible del veredicto tipado."""
     cabecera = "VEREDICTO: APROBADO" if veredicto.aprobado else "VEREDICTO: CAMBIOS REQUERIDOS"
+    if veredicto.etapa == "determinista":
+        cabecera += " (revisión automática)"
     partes = [cabecera]
     if veredicto.resumen:
         partes.append(veredicto.resumen)

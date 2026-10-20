@@ -5,7 +5,7 @@ import time
 from langchain_core.tools import tool
 
 from src.observability.trazas import registrar_evento
-from src.rag.context import get_rag_user_id
+from src.rag.context import anotar_fuentes, get_rag_user_id
 from src.rag.mysql_store import obtener_retriever
 
 
@@ -27,13 +27,15 @@ def _buscar(indice: str, consulta: str) -> str:
     inicio = time.perf_counter()
     user_id = get_rag_user_id()
     chunks = obtener_retriever(user_id, indice).buscar(consulta)
+    fuentes = [c["metadatos"].get("fuente") for c in chunks]
+    anotar_fuentes(fuentes)
     registrar_evento(
         "rag_busqueda",
         indice=indice,
         consulta=consulta,
         user_id=user_id,
         num_resultados=len(chunks),
-        fuentes=[c["metadatos"].get("fuente") for c in chunks],
+        fuentes=fuentes,
         duracion_ms=round((time.perf_counter() - inicio) * 1000),
     )
     return _formatear(chunks)

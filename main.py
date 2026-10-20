@@ -1,12 +1,15 @@
 """CLI del Asistente IA para Educación.
 
 Uso:
-  python main.py ingestar                    Construye los índices RAG
+  python main.py ingestar                    Carga data/ en la KB MySQL del usuario legado
   python main.py estimar-modulo [ruta]       Métricas PDF/vídeo sin embeddings
   python main.py docente "petición"          Petición como docente
   python main.py alumno "petición" [id]      Petición como alumno
   python main.py demo                        Ejecuta los escenarios de ejemplo
   python main.py trazas [N]                  Resumen de las últimas N trazas
+
+El usuario es LEGACY_API_USER_ID o LEGACY_API_USER_EMAIL (demo@instituto.local por
+defecto), igual que en src/legacy_chat_api.py.
 """
 
 import sys
@@ -53,6 +56,7 @@ def _invocar_grafo(app, entrada: dict, config: dict) -> dict:
 def _ejecutar(peticion: str, rol: str, alumno_id: str = "anonimo") -> None:
     from langgraph.types import Command
 
+    from src.contexto_usuario import contexto_usuario, resolver_usuario_legado
     from src.orchestrator.graph import construir_grafo
 
     configurar_observabilidad()
@@ -62,7 +66,8 @@ def _ejecutar(peticion: str, rol: str, alumno_id: str = "anonimo") -> None:
 
     print(f"\n[{rol}] {peticion}\n{'=' * 70}")
 
-    with TrazasSolicitud(run_id, rol, peticion, alumno_id):
+    # Las tools RAG y la memoria de casos necesitan el usuario en contexto
+    with contexto_usuario(resolver_usuario_legado()), TrazasSolicitud(run_id, rol, peticion, alumno_id):
         estado = _invocar_grafo(
             app,
             {"peticion": peticion, "rol_usuario": rol, "alumno_id": alumno_id},
@@ -120,9 +125,10 @@ def main() -> None:
 
     comando = sys.argv[1]
     if comando == "ingestar":
-        from src.ingestion.pipeline import ingestar
+        from src.contexto_usuario import resolver_usuario_legado
+        from src.ingestion.carpeta_data import sincronizar_carpeta_data
 
-        ingestar()
+        print(sincronizar_carpeta_data(resolver_usuario_legado()))
     elif comando in {"estimar-modulo", "estimar_modulo"}:
         import runpy
         from pathlib import Path

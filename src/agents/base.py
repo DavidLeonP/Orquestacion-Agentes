@@ -1,14 +1,16 @@
-"""Fábrica de agentes ReAct (directriz de orquestación §2.2).
+"""Fábrica de agentes ReAct (directriz de orquestación §3.2).
 
-Cada agente es un subgrafo ReAct de LangGraph: razona, llama tools RAG,
-observa la evidencia e itera hasta MAX_ITERACIONES_REACT.
+Cada agente es un subgrafo ReAct (`langchain.agents.create_agent`): razona,
+llama tools RAG, observa la evidencia e itera hasta MAX_ITERACIONES_REACT.
 """
 
 import time
 from typing import TypeVar
 
+from langchain.agents import create_agent
+from langchain.agents.middleware import wrap_tool_call
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.prebuilt import create_react_agent
+from langgraph.errors import GraphBubbleUp, GraphRecursionError
 from pydantic import BaseModel
 
 from src.agents.schemas import safe_parse
@@ -31,25 +33,64 @@ DIRECTRIZ_GROUNDING = (
 )
 
 
-def crear_agente(nombre: str, prompt: str, tools: list):
-    llm = get_chat_model(temperature=0)
-    return create_react_agent(
-        llm,
+@wrap_tool_call
+def error_como_observacion(request, handler):
+    """Un fallo de la tool (p. ej. MySQL caído) vuelve al agente como observación
+    en vez de abortar la solicitud; el agente puede reintentar o declarar que no
+    hay evidencia (notebook §5C: invocar_herramienta)."""
+    try:
+        return handler(request)
+    except GraphBubbleUp:  # interrupt() y demás control de flujo de LangGraph
+        raise
+    except Exception as exc:  # noqa: BLE001
+        nombre = request.tool_call["name"]
+        registrar_evento("tool_error", tool=nombre, error=str(exc)[:300])
+        return ToolMessage(
+            content=f"Error al ejecutar {nombre}: {type(exc).__name__}. "
+            "Reintenta con otra consulta o indica que no consta evidencia.",
+            tool_call_id=request.tool_call["id"],
+            name=nombre,
+            status="error",
+        )
+
+
+def crear_agente(nombre: str, prompt: str, tools: list, model: str | None = None):
+    return create_agent(
+        get_chat_model(temperature=0, model=model),
         tools,
-        prompt=f"{prompt}\n\n{DIRECTRIZ_GROUNDING}",
+        system_prompt=f"{prompt}\n\n{DIRECTRIZ_GROUNDING}",
+        middleware=[error_como_observacion],
         name=nombre,
     )
 
 
 def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
-    """Ejecuta el bucle ReAct con límite de iteraciones y devuelve la respuesta final."""
+    """Ejecuta el bucle ReAct con límite de iteraciones y devuelve la respuesta final.
+
+    Si se agotan las iteraciones devuelve una respuesta controlada (como el
+    "se alcanzó MAX_STEPS" del notebook) en vez de propagar GraphRecursionError.
+    """
     registrar_evento("agente_inicio", agente=nombre, peticion=peticion[:300])
     inicio = time.perf_counter()
 
-    resultado = agente.invoke(
-        {"messages": [HumanMessage(content=peticion)]},
-        config={"recursion_limit": 2 * MAX_ITERACIONES_REACT + 5},
-    )
+    try:
+        resultado = agente.invoke(
+            {"messages": [HumanMessage(content=peticion)]},
+            # 2 super-steps (model + tools) por iteración + respuesta final y arranque
+            # de create_agent: +3 permite exactamente MAX iteraciones (tests/test_agentes_base.py)
+            config={"recursion_limit": 2 * MAX_ITERACIONES_REACT + 3},
+        )
+    except GraphRecursionError:
+        registrar_evento(
+            "agente_fin",
+            agente=nombre,
+            duracion_ms=round((time.perf_counter() - inicio) * 1000),
+            limite_iteraciones=True,
+        )
+        return (
+            f"No pude completar la tarea en {MAX_ITERACIONES_REACT} iteraciones. "
+            "No consta evidencia suficiente en la base documental."
+        )
 
     tools_usadas = []
     for m in resultado["messages"]:
@@ -57,7 +98,8 @@ def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
             tools_usadas.extend(tc["name"] for tc in m.tool_calls)
         elif isinstance(m, ToolMessage) and getattr(m, "name", None):
             tools_usadas.append(m.name)
-    iteraciones = sum(1 for m in resultado["messages"] if isinstance(m, AIMessage))
+    ai = [m for m in resultado["messages"] if isinstance(m, AIMessage)]
+    uso = [m.usage_metadata or {} for m in ai]
     respuesta = resultado["messages"][-1].content
     if not isinstance(respuesta, str):
         respuesta = str(respuesta)
@@ -66,12 +108,23 @@ def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
         "agente_fin",
         agente=nombre,
         duracion_ms=round((time.perf_counter() - inicio) * 1000),
-        iteraciones_llm=iteraciones,
+        iteraciones_llm=len(ai),
+        tokens_in=sum(u.get("input_tokens", 0) for u in uso),
+        tokens_out=sum(u.get("output_tokens", 0) for u in uso),
         tools_usadas=tools_usadas,
         longitud_respuesta=len(respuesta),
         cita_fuentes="fuentes consultadas" in respuesta.lower(),
     )
     return respuesta
+
+
+def invocar_estructurado(schema: type[T], prompt: str, model: str | None, fallback: T) -> T:
+    """Salida tipada del LLM; ante error de red o de validación, `fallback`."""
+    try:
+        salida = get_structured_model(schema, temperature=0, model=model).invoke(prompt)
+    except Exception:  # noqa: BLE001 - quien llama decide qué significa el fallback
+        return fallback
+    return safe_parse(schema, salida, fallback=fallback)[0]
 
 
 def estructurar_salida(

@@ -35,8 +35,9 @@ Rel(asistente, langsmith, "HTTPS", "Tracing opcional")
 
 ## Alcance
 
-- **Dentro del sistema:** API FastAPI, orquestador LangGraph, agentes ReAct, SQL Agent
-  (`src/sql_agent/`), retriever híbrido MySQL, ingest, extractores de medios, model registry.
+- **Dentro del sistema:** API FastAPI, orquestador LangGraph (con Reflexion), agentes ReAct
+  (`create_agent`), SQL Agent (`src/sql_agent/`), retriever híbrido (BM25 + índice Chroma
+  embebido), ingest, extractores de medios, model registry, evaluación offline (`eval/`).
 - **Fuera del sistema:** OpenAI / vLLM USFQ / Ollama, Whisper u ASR compatible, MySQL gestionado,
   la BD de negocio del SQL Agent, LangSmith, UI Streamlit (proceso aparte), carpetas de módulos
   del profesor, Postman/scripts.
@@ -45,7 +46,9 @@ Rel(asistente, langsmith, "HTTPS", "Tracing opcional")
 
 1. El conocimiento es **por usuario**, no un corpus institucional compartido.
 2. El backend es el producto estable; Streamlit es un **cliente** (no embebe LangGraph/RAG).
-3. MySQL es la fuente de verdad de KB y gestión (no Chroma en el flujo API).
+3. MySQL es la fuente de verdad de KB y gestión. Chroma (embebido, `storage/chroma`) es
+   un índice derivado que se reconstruye desde `chunk_embeddings`, y además guarda la
+   memoria de casos (exámenes aprobados).
 4. El proveedor LLM/ASR es intercambiable vía `LLM_PROFILE` / `WHISPER_*` sin cambiar contratos de agentes.
 5. Los módulos del profesor (PDF/vídeo) se normalizan a texto antes del ingest MySQL.
 6. La BD de negocio del SQL Agent (`AGENT_DB_URI`) es **distinta** de la BD de metadatos

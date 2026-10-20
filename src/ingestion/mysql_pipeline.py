@@ -1,15 +1,20 @@
-"""Pipeline de ingesta hacia MySQL (chunks + embeddings por usuario)."""
+"""Pipeline de ingesta hacia MySQL (chunks + embeddings por usuario) y Chroma."""
 
 from __future__ import annotations
 
+import logging
 import re
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
 
 from src.db.models import Chunk, ChunkEmbedding, Document
+from src.config import VECTOR_BACKEND
 from src.llm import active_embedding_model, get_embeddings
+from src.rag import kb_vectores
 from src.rag.mysql_store import invalidar_cache_retriever
+
+logger = logging.getLogger("orquestacion.ingesta")
 
 CABECERA_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
@@ -31,6 +36,7 @@ def _borrar_chunks_documento(db: Session, document_id: int) -> None:
     for c in chunks:
         db.delete(c)
     db.flush()
+    kb_vectores.borrar_documento(document_id)
 
 
 def indexar_documento(db: Session, doc: Document) -> int:
@@ -49,6 +55,7 @@ def indexar_documento(db: Session, doc: Document) -> int:
     trozos = splitter.split_text(cuerpo) or [cuerpo]
     embeddings = embedder.embed_documents(trozos) if trozos else []
 
+    nuevos = []
     for i, (texto, emb) in enumerate(zip(trozos, embeddings)):
         chunk = Chunk(
             document_id=doc.id,
@@ -61,6 +68,7 @@ def indexar_documento(db: Session, doc: Document) -> int:
         )
         db.add(chunk)
         db.flush()
+        nuevos.append(chunk)
         db.add(
             ChunkEmbedding(
                 chunk_id=chunk.id,
@@ -69,6 +77,12 @@ def indexar_documento(db: Session, doc: Document) -> int:
                 embedding=emb,
             )
         )
+
+    if VECTOR_BACKEND == "chroma":
+        try:
+            kb_vectores.upsert(nuevos, embeddings)
+        except Exception as exc:  # noqa: BLE001 - el retriever los resincroniza desde MySQL
+            logger.warning("Chroma: indexación diferida de document_id=%s: %s", doc.id, exc)
 
     doc.status = "indexed"
     doc.error_msg = None

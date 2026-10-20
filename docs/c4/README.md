@@ -11,7 +11,7 @@ Modelo C4 del **Asistente IA para Educación** (API JWT + Streamlit + MySQL + or
 
 Documentación relacionada:
 
-- [../arquitectura.md](../arquitectura.md) — directrices y stack (incluye §4.5 medios)
+- [../arquitectura.md](../arquitectura.md) — directrices y stack (incluye §4.4 medios)
 - [../implementacion.md](../implementacion.md) — arranque API + Streamlit + scripts de módulo
 - [../diagramas-secuencia.md](../diagramas-secuencia.md) — flujos temporales (incl. PDF/vídeo y agentes)
 - [../revision-implementacion-agentes.md](../revision-implementacion-agentes.md) — pipeline de revisión

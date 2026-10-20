@@ -54,14 +54,17 @@ def _latest_node(events: list[dict[str, Any]]) -> str | None:
 def _step_timeline(events: list[dict[str, Any]]) -> list[str]:
     steps: list[str] = []
     seen: set[str] = set()
+    veces: dict[str, int] = {}
     for ev in events:
         tipo = ev.get("tipo")
         if tipo == "nodo_grafo":
             nodo = (ev.get("payload") or {}).get("nodo")
-            if not nodo or nodo in seen:
+            if not nodo:
                 continue
-            seen.add(nodo)
-            steps.append(f"✓ {agent_label(nodo)}")
+            # Reflexion repite exam_generator/validar: cada vuelta es un intento nuevo
+            veces[nodo] = veces.get(nodo, 0) + 1
+            intento = f" · intento {veces[nodo]}" if veces[nodo] > 1 else ""
+            steps.append(f"✓ {agent_label(nodo)}{intento}")
         elif tipo == "waiting_approval" and "waiting_approval" not in seen:
             seen.add("waiting_approval")
             steps.append("✓ Listo para tu revisión")
@@ -87,6 +90,7 @@ def poll_request(
     deadline = started + max_wait_s
     last: dict[str, Any] = {}
     events: list[dict[str, Any]] = []
+    max_pct = 0.0  # el progreso no retrocede cuando Reflexion vuelve a exam_generator
 
     st.info(
         "Los agentes pueden tardar **1–2 minutos** (sobre todo al generar un examen). "
@@ -115,7 +119,7 @@ def poll_request(
             status = last.get("status", "?")
             nodo = _latest_node(events) or last.get("agente_destino")
             elapsed = int(time.time() - started)
-            pct = phase_progress(nodo if isinstance(nodo, str) else None, status)
+            pct = max_pct = max(max_pct, phase_progress(nodo if isinstance(nodo, str) else None, status))
             label = f"{agent_label(nodo)} · {elapsed}s"
 
             progress.progress(pct, text=label)

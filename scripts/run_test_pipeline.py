@@ -4,7 +4,6 @@ Caso de prueba: un docente nuevo sube un apunte, lo indexa en MySQL,
 lanza una solicitud al orquestador y recibe respuesta grounded.
 
 Uso:
-  $env:PYTHONPATH = (Get-Location).Path
   python scripts/run_test_pipeline.py
 
 Opcional (solo smoke, sin OpenAI/LLM):
@@ -18,6 +17,9 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient
 

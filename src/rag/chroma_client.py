@@ -1,22 +1,25 @@
-"""Cliente ChromaDB compartido.
+"""Cliente ChromaDB compartido (embebido, PersistentClient en storage/chroma).
 
 ChromaDB falla con KeyError si varios PersistentClient se abren en paralelo sobre
 el mismo path (p. ej. cuando el Exam Generator llama varias tools RAG a la vez).
 Un único cliente + lock evita esa condición de carrera.
+
+Colecciones con vectores propios (los calcula el model registry, no Chroma):
+- `kb_<modelo>`: chunks de la KB de todos los usuarios, filtrados por `user_id`.
+- `casos_<modelo>`: exámenes aprobados por el docente (memoria de casos).
+Una colección por modelo de embeddings evita mezclar dimensiones al cambiar de perfil.
 """
 
+import re
 import threading
-from functools import lru_cache
 
 import chromadb
-from langchain_chroma import Chroma
 
 from src.config import DIR_CHROMA
-from src.llm import get_embeddings as registry_embeddings
+from src.llm import active_embedding_model
 
 _lock = threading.RLock()
 _client = None
-_colecciones: dict[str, Chroma] = {}
 
 
 def obtener_cliente_chroma():
@@ -27,17 +30,22 @@ def obtener_cliente_chroma():
         return _client
 
 
-@lru_cache(maxsize=1)
-def obtener_embeddings():
-    return registry_embeddings()
-
-
-def obtener_coleccion(indice: str) -> Chroma:
+def coleccion_vectores(prefijo: str):
+    """Colección cruda `<prefijo>_<modelo activo>` con distancia coseno."""
+    # Chroma 1.x: [A-Za-z0-9_.-], empezar y terminar en alfanumérico
+    nombre = f"{prefijo}_{re.sub(r'[^A-Za-z0-9_-]', '_', active_embedding_model())}".strip("_-.")
     with _lock:
-        if indice not in _colecciones:
-            _colecciones[indice] = Chroma(
-                client=obtener_cliente_chroma(),
-                collection_name=indice,
-                embedding_function=obtener_embeddings(),
-            )
-        return _colecciones[indice]
+        return obtener_cliente_chroma().get_or_create_collection(
+            nombre, metadata={"hnsw:space": "cosine"}
+        )
+
+
+def filtro(**campos) -> dict:
+    """Filtro `where` de Chroma para uno o varios campos exactos."""
+    condiciones = [{k: v} for k, v in campos.items()]
+    return condiciones[0] if len(condiciones) == 1 else {"$and": condiciones}
+
+
+def id_vector(user_id: int, chunk_uid: str) -> str:
+    # chunk_uid solo es único por usuario (uq_user_chunk_uid)
+    return f"{user_id}:{chunk_uid}"

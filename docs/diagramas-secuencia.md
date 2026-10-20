@@ -52,6 +52,7 @@ sequenceDiagram
     participant Pipe as mysql_pipeline
     participant Emb as Embeddings_registry
     participant DB as MySQL
+    participant CH as Chroma_kb_modelo
 
     C->>API: POST /knowledge/apuntes/documents JWT
     API->>API: user_id desde JWT
@@ -66,7 +67,9 @@ sequenceDiagram
         Pipe->>Emb: embed_documents
         Emb-->>Pipe: vectores
         Pipe->>DB: DELETE chunks previos del doc
+        Pipe->>CH: delete where document_id
         Pipe->>DB: INSERT chunks + chunk_embeddings
+        Pipe->>CH: upsert vectores (user_id, indice, document_id)
         Pipe->>DB: UPDATE documents status indexed
     end
     API-->>C: 200 procesados errores detalle
@@ -101,6 +104,7 @@ sequenceDiagram
     Pipe->>Pipe: split 1000/150
     Pipe->>Emb: embed_documents
     Pipe->>DB: chunks + chunk_embeddings
+    Pipe->>Pipe: upsert en Chroma kb_modelo
     Pipe->>DB: status indexed
     Ext-->>Ops: metrics JSON
 ```
@@ -115,8 +119,9 @@ sequenceDiagram
     participant BG as BackgroundTask
     participant Orq as LangGraph_Orquestador
     participant Tutor as Tutor_ReAct
-    participant RAG as Retriever_MySQL
+    participant RAG as Retriever_hibrido
     participant DB as MySQL
+    participant CH as Chroma
     participant LLM as OpenAI_LLM
 
     C->>API: POST /requests peticion JWT rol alumno
@@ -131,7 +136,9 @@ sequenceDiagram
     Tutor->>LLM: decide tool
     LLM-->>Tutor: tool_call buscar_apuntes
     Tutor->>RAG: buscar apuntes user_id
-    RAG->>DB: SELECT chunks embeddings
+    RAG->>DB: SELECT chunks (BM25, una vez por caché)
+    RAG->>CH: query HNSW where user_id + indice
+    RAG->>RAG: fusión RRF
     RAG-->>Tutor: evidencia con fuentes
     Tutor->>LLM: redactar respuesta
     LLM-->>Tutor: explicacion
@@ -155,7 +162,7 @@ sequenceDiagram
     participant Orq as Orquestador
     participant EG as ExamGenerator
     participant RA as RubricAgent
-    participant RAG as RAG_MySQL
+    participant RAG as RAG_hibrido
     participant DB as MySQL
 
     D->>API: POST /requests Genera examen JWT
@@ -163,21 +170,31 @@ sequenceDiagram
     API-->>D: 202
     API->>Orq: background stream
 
-    Orq->>Orq: router LLM a exam_generator
+    Orq->>Orq: router por regla genera examen (LLM si es ambiguo)
+    Orq->>DB: criterios de la rúbrica (cacheados) + casos parecidos
     Orq->>EG: generar examen
     EG->>RAG: examenes + apuntes + rubricas
     RAG-->>EG: evidencia
     EG-->>Orq: borrador
 
-    Orq->>RA: validar borrador
-    RA->>RAG: buscar_rubricas
-    RA-->>Orq: VEREDICTO APROBADO o CAMBIOS
-
-    alt CAMBIOS y intentos menores a max
-        Orq->>EG: regenerar con feedback
-        EG-->>Orq: nuevo borrador
-        Orq->>RA: validar otra vez
+    Orq->>Orq: verificar_examen (constraints, fuentes, criterios; sin LLM)
+    opt reglas OK
+        Orq->>RA: validar borrador
+        RA->>RAG: buscar_rubricas
+        RA-->>Orq: VeredictoValidacion
     end
+
+    alt rechazado y intentos menores a MAX_INTENTOS
+        Orq->>Orq: reflexionar (lección + modo)
+        alt modo reparar
+            Orq->>EG: corregir el borrador con sus motivos
+        else modo regenerar
+            Orq->>EG: generar de nuevo solo con lecciones
+        end
+        EG-->>Orq: nuevo borrador
+        Orq->>Orq: validar otra vez
+    end
+    Orq->>Orq: mejor_intento
 
     Orq-->>API: interrupt HITL
     API->>DB: status waiting_approval
@@ -189,6 +206,7 @@ sequenceDiagram
     D->>API: POST /requests/id/approve decision si
     API->>Orq: Command resume
     Orq->>DB: memory_feedback + memory_historico
+    Orq->>Orq: archivar caso en Chroma casos_modelo
     Orq-->>API: respuesta_final
     API->>DB: status completed
     API-->>D: 200 examen aprobado
@@ -213,8 +231,10 @@ sequenceDiagram
     API->>DB: marcar pending
     API->>Pipe: indexar_documento
     Pipe->>DB: borrar chunks del documento
+    Pipe->>Pipe: borrar sus vectores en Chroma
     Pipe->>Emb: nuevos embeddings
     Pipe->>DB: insert chunks embeddings
+    Pipe->>Pipe: upsert vectores en Chroma
     Pipe->>DB: status indexed
     API-->>C: 200 document_id chunks status
 ```
@@ -287,7 +307,7 @@ sequenceDiagram
     API-->>U2: solo docs propios
 ```
 
-## 7. Interacción de agentes (router → tools → RAG)
+## 8. Interacción de agentes (router → tools → RAG)
 
 ```mermaid
 sequenceDiagram
@@ -307,7 +327,9 @@ sequenceDiagram
     Orq->>R: clasificar
     alt rol alumno
         R-->>Orq: agente_destino=tutor regla
-    else rol docente
+    else rol docente y una regla coincide (verbo + objeto)
+        R-->>Orq: agente_destino regla (sin LLM)
+    else rol docente ambiguo
         R->>LLM: DecisionRouter estructurado
         LLM-->>R: curriculum exam_generator rubric tutor
         R-->>Orq: agente_destino
@@ -319,14 +341,17 @@ sequenceDiagram
         opt tool RAG
             Ag->>T: buscar_apuntes u otras
             T->>Ret: query + user_id ContextVar
-            Ret->>DB: BM25 + cosine model activo
+            Ret->>DB: BM25 + Chroma HNSW (coseno MySQL si falla)
             Ret-->>T: top-k con fuentes
-            T-->>Ag: evidencia
+            T-->>Ag: evidencia (se anota para el verificador)
+        end
+        opt la tool falla
+            T-->>Ag: ToolMessage de error (middleware), el agente sigue
         end
     end
     opt exam_generator
-        Orq->>Ag: Rubric valida borrador
-        Orq->>Orq: interrupt HITL si procede
+        Orq->>Orq: validar + Reflexion (diagrama 4)
+        Orq->>Orq: interrupt HITL con el mejor intento
     end
     Orq-->>API: respuesta_final o waiting_approval
 ```

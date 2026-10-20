@@ -1,11 +1,14 @@
 # Resultados de ejecución del pipeline (API)
 
+> Instantánea histórica de una corrida de `scripts/run_test_pipeline.py`; no describe el
+> flujo actual (ver [arquitectura.md](arquitectura.md)).
+
 **Fecha (UTC):** 2026-07-12T20:39:45Z  
 **Base URL:** `http://146.190.151.125:8000`  
 **Estado:** completado con éxito  
 **Duración total aproximada:** ~70 s  
 **Script:** [`scripts/run_pipeline_api.py`](../scripts/run_pipeline_api.py)  
-**JSON crudo:** [`_pipeline_run_raw.json`](_pipeline_run_raw.json)
+**JSON crudo:** `_pipeline_run_raw.json` (artefacto local de la corrida, no versionado)
 
 ## Resumen ejecutivo
 

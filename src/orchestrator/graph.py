@@ -3,6 +3,10 @@
 La información compartida entre agentes viaja como contratos Pydantic
 (serializados a dict en el estado). El LLM es sustituible; el routing usa
 campos tipados (p. ej. veredicto.aprobado), no substrings del texto libre.
+
+Generación de exámenes con Reflexion (§5.4): exam_generator -> validar ->
+reflexionar -> exam_generator, hasta MAX_INTENTOS; al docente va el mejor
+intento. Las decisiones puras viven en `reflexion.py`.
 """
 
 from typing import Any, Literal, TypedDict
@@ -11,15 +15,17 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from src.agents.base import estructurar_salida, ejecutar_agente
+from src.agents.base import ejecutar_agente, estructurar_salida, invocar_estructurado
 from src.agents.curriculum import crear_curriculum_agent
 from src.agents.exam_generator import crear_exam_generator_agent
 from src.agents.rubric import crear_rubric_agent
 from src.agents.schemas import (
     ConstraintsExamen,
+    CriteriosRubrica,
     DecisionRouter,
     ExamenGenerado,
     PayloadAprobacion,
+    Reflexion,
     VeredictoValidacion,
     dump_state,
     render_examen,
@@ -27,11 +33,24 @@ from src.agents.schemas import (
     safe_parse,
 )
 from src.agents.tutor import crear_tutor_agent
+from src.config import EVAL_MODEL
 from src.llm import get_structured_model
+from src.memory import casos as memoria_casos
+from src.memory import reglas as manual_reglas
 from src.memory import store as default_store
 from src.observability.trazas import registrar_evento
-
-MAX_REINTENTOS_VALIDACION = 2
+from src.orchestrator.criterios import cargar_criterios
+from src.orchestrator.reflexion import (
+    leccion,
+    mejor_intento,
+    modo_reintento,
+    peticion_examen,
+    prompt_reflexion,
+    siguiente_paso,
+    verificar_examen,
+)
+from src.orchestrator.routing import enrutar_por_reglas
+from src.rag.context import iniciar_evidencia, rag_user_id_actual
 
 
 class EstadoOrquestador(TypedDict, total=False):
@@ -42,15 +61,34 @@ class EstadoOrquestador(TypedDict, total=False):
     constraints: dict
     examen: dict
     borrador: str
-    veredicto: dict
-    intentos_validacion: int
+    fuentes_vistas: list[str]  # fuentes devueltas por las tools RAG en el intento actual
+    casos: list[str]  # exámenes aprobados parecidos (memoria de casos)
+    criterios: dict  # CriteriosRubrica de la rúbrica del docente ({} = sin criterios)
+    intentos: list[dict]  # {examen, borrador, veredicto, errores, fuentes} por intento
+    lecciones: list[str]  # Reflexion: una por intento rechazado
+    modo: str  # siguiente intento: "regenerar" (Reflexion) o "reparar" (corrige el borrador)
+    reglas_nuevas: list[str]  # Reflexion: reglas generales para el entrenamiento
     respuesta_final: str
+
+
+# El router lo aplica en cada petición: un thread_id reutilizado (legacy_chat_api)
+# no debe heredar intentos ni memoria de la petición anterior.
+ESTADO_PETICION_NUEVA = {
+    "fuentes_vistas": [],
+    "casos": [],
+    "criterios": {},
+    "intentos": [],
+    "lecciones": [],
+    "modo": "regenerar",
+    "reglas_nuevas": [],
+}
 
 
 def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     store = memory_backend or default_store
     llm_router = get_structured_model(DecisionRouter, temperature=0)
     llm_constraints = get_structured_model(ConstraintsExamen, temperature=0)
+    reglas_examen = manual_reglas.cargar("exam_generator")
     agentes = {
         "curriculum": crear_curriculum_agent(),
         "exam_generator": crear_exam_generator_agent(),
@@ -67,29 +105,33 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
                 agente_destino=destino,
                 motivo="rol_usuario=alumno",
             )
-            return {"agente_destino": destino, "intentos_validacion": 0}
-        decision = llm_router.invoke(
-            "Clasifica a qué agente especializado corresponde esta petición de "
-            "un docente. Elige EXACTAMENTE uno de: curriculum, exam_generator, "
-            "rubric, tutor.\n"
-            "Ejemplos:\n"
-            "- 'Genera un examen de 6 preguntas' -> exam_generator\n"
-            "- 'Estructura la unidad en sesiones' -> curriculum\n"
-            "- 'Propón una rúbrica de evaluación' -> rubric\n"
-            "- 'Explica la ley de Ohm con los apuntes' -> tutor\n"
-            "- '¿Qué es un circuito en serie?' -> tutor\n\n"
-            f"Petición:\n{estado['peticion']}"
-        )
-        if not isinstance(decision, DecisionRouter):
-            decision, _ = safe_parse(DecisionRouter, decision)
-        if not isinstance(decision, DecisionRouter) or not decision.agente:
+            return {"agente_destino": destino, **ESTADO_PETICION_NUEVA}
+        destino, metodo = enrutar_por_reglas(estado["peticion"]), "regla"
+        if destino is None:
+            metodo = "llm"
+            decision = llm_router.invoke(
+                "Clasifica a qué agente especializado corresponde esta petición de "
+                "un docente. Elige EXACTAMENTE uno de: curriculum, exam_generator, "
+                "rubric, tutor.\n"
+                "Ejemplos:\n"
+                "- 'Genera un examen de 6 preguntas' -> exam_generator\n"
+                "- 'Estructura la unidad en sesiones' -> curriculum\n"
+                "- 'Propón una rúbrica de evaluación' -> rubric\n"
+                "- 'Explica la ley de Ohm con los apuntes' -> tutor\n"
+                "- '¿Qué es un circuito en serie?' -> tutor\n\n"
+                f"Petición:\n{estado['peticion']}"
+            )
             # Fallback seguro si el LLM local no materializa el contrato.
-            decision = DecisionRouter(agente="tutor")
-        out: dict[str, Any] = {
-            "agente_destino": decision.agente,
-            "intentos_validacion": 0,
-        }
-        if decision.agente == "exam_generator":
+            decision, _ = safe_parse(
+                DecisionRouter, decision, fallback=DecisionRouter(agente="tutor")
+            )
+            destino = decision.agente
+        out: dict[str, Any] = {"agente_destino": destino, **ESTADO_PETICION_NUEVA}
+        if destino == "exam_generator":
+            user_id = rag_user_id_actual()
+            if user_id:
+                out["casos"] = memoria_casos.recordar(user_id, estado["peticion"])
+                out["criterios"] = dump_state(cargar_criterios(user_id))
             try:
                 constraints = llm_constraints.invoke(
                     "Extrae las constraints del examen a partir de esta petición. "
@@ -102,11 +144,7 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
                 out["constraints"] = dump_state(constraints)
             except Exception:  # noqa: BLE001
                 out["constraints"] = dump_state(ConstraintsExamen())
-        registrar_evento(
-            "router",
-            metodo="llm",
-            agente_destino=decision.agente,
-        )
+        registrar_evento("router", metodo=metodo, agente_destino=destino)
         return out
 
     def nodo_curriculum(estado: EstadoOrquestador) -> dict:
@@ -116,47 +154,57 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
             )
         }
 
+    def _constraints(estado: EstadoOrquestador) -> ConstraintsExamen:
+        return safe_parse(ConstraintsExamen, estado.get("constraints") or {})[0]
+
     def nodo_exam_generator(estado: EstadoOrquestador) -> dict:
-        peticion = estado["peticion"]
-        constraints_data = estado.get("constraints")
-        if constraints_data:
-            constraints, _ = safe_parse(ConstraintsExamen, constraints_data)
-            peticion += (
-                "\n\nConstraints tipadas (respétalas):\n"
-                f"{constraints.model_dump_json(indent=2)}"
-            )
-
-        veredicto_data = estado.get("veredicto")
-        if veredicto_data:
-            veredicto, _ = safe_parse(VeredictoValidacion, veredicto_data)
-            if not veredicto.aprobado:
-                motivos = "\n".join(f"- {m}" for m in veredicto.motivos) or veredicto.resumen
-                peticion += (
-                    "\n\nTu borrador anterior fue rechazado por el Rubric Agent. "
-                    "Corrige estos incumplimientos tipados:\n"
-                    f"{motivos}\n\nBorrador anterior:\n"
-                    + estado.get("borrador", "")
-                )
-
-        texto = ejecutar_agente(
-            agentes["exam_generator"], peticion, "exam_generator"
+        # Actor: memoria = reglas + casos + lecciones; al reparar, además el borrador rechazado
+        casos = estado.get("casos", [])
+        modo = estado.get("modo", "regenerar")
+        reparar = estado["intentos"][-1] if modo == "reparar" else None
+        peticion = peticion_examen(
+            estado["peticion"],
+            _constraints(estado),
+            estado.get("lecciones", []),
+            reglas=reglas_examen,
+            casos=casos,
+            reparar=reparar,
         )
+        vistas = iniciar_evidencia()
+        if reparar:
+            # El borrador reparado puede seguir citando lo que se consultó al escribirlo
+            vistas.extend(reparar["fuentes"])
+        texto = ejecutar_agente(agentes["exam_generator"], peticion, "exam_generator")
         examen, ok = estructurar_salida(
             ExamenGenerado,
             texto,
             instruccion=(
                 "Estructura el siguiente examen en el schema ExamenGenerado. "
                 "Incluye preguntas numeradas con puntuación, solucionario y fuentes. "
+                "Clasifica cada pregunta en `tipo`: definicion (teoría), numerico (cálculos), "
+                "esquema (dibujo o diagrama), tabla, seguridad (normas de seguridad o "
+                "protección, aunque tenga cálculos) u otro; y marca con_calculo=true si su "
+                "respuesta exige cálculos, sea cual sea el tipo. "
                 "Copia el texto completo legible en texto_completo."
             ),
             nombre="exam_estructurar",
         )
         if not examen.texto_completo.strip():
             examen.texto_completo = texto
-        registrar_evento("examen_estructurado", ok=ok, num_preguntas=len(examen.preguntas))
+        registrar_evento(
+            "examen_estructurado",
+            ok=ok,
+            modo=modo,
+            num_preguntas=len(examen.preguntas),
+            tipos=[p.tipo for p in examen.preguntas],
+            fuentes_vistas=vistas,
+            casos=len(casos),
+            reglas=len(reglas_examen),
+        )
         return {
             "examen": dump_state(examen),
             "borrador": render_examen(examen),
+            "fuentes_vistas": list(vistas),
         }
 
     def nodo_rubric(estado: EstadoOrquestador) -> dict:
@@ -172,66 +220,92 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
         }
 
     def validar(estado: EstadoOrquestador) -> dict:
-        borrador = estado.get("borrador") or ""
-        if estado.get("examen"):
-            examen, _ = safe_parse(ExamenGenerado, estado["examen"])
-            borrador = render_examen(examen) or borrador
-
-        texto = ejecutar_agente(
-            agentes["rubric"],
-            "Valida el siguiente examen contra las rúbricas y criterios de "
-            "diseño del departamento. Indica si apruebas o requieres cambios, "
-            "lista criterios evaluados y motivos concretos:\n\n"
-            + borrador,
-            "rubric_validacion",
-        )
-        veredicto, ok = estructurar_salida(
-            VeredictoValidacion,
-            texto,
-            instruccion=(
-                "Convierte la validación en VeredictoValidacion. "
-                "aprobado=true solo si el material cumple los criterios; "
-                "si hay dudas o incumplimientos, aprobado=false y rellena motivos."
-            ),
-            nombre="veredicto_estructurar",
-        )
+        # Evaluador híbrido: reglas en Python primero; el LLM solo si pasan
+        constraints = _constraints(estado)
+        examen, _ = safe_parse(ExamenGenerado, estado["examen"])
+        borrador = estado["borrador"]
+        criterios = safe_parse(CriteriosRubrica, estado.get("criterios") or {})[0]
+        errores = verificar_examen(examen, constraints, estado.get("fuentes_vistas"), criterios)
+        if errores:
+            veredicto = VeredictoValidacion(
+                aprobado=False,
+                motivos=errores,
+                resumen="Incumple constraints o criterios de la rúbrica verificables.",
+                etapa="determinista",
+            )
+        else:
+            texto = ejecutar_agente(
+                agentes["rubric"],
+                "Valida el siguiente examen contra las rúbricas y criterios de "
+                "diseño del departamento y contra estas constraints:\n"
+                f"{constraints.model_dump_json(indent=2)}\n"
+                "Cada motivo debe nombrar la pregunta y el criterio incumplido. "
+                "No rechaces por 'falta verificar más' si las rúbricas consultadas "
+                "respaldan el examen.\n\n" + borrador,
+                "rubric_validacion",
+            )
+            veredicto, _ = estructurar_salida(
+                VeredictoValidacion,
+                texto,
+                instruccion=(
+                    "Convierte la validación en VeredictoValidacion. "
+                    "aprobado=true solo si el material cumple los criterios; "
+                    "si hay incumplimientos, aprobado=false y rellena motivos."
+                ),
+                nombre="veredicto_estructurar",
+            )
+            veredicto.etapa = "llm"
+        intentos = estado.get("intentos", []) + [
+            {
+                "examen": estado["examen"],
+                "borrador": borrador,
+                "veredicto": dump_state(veredicto),
+                "errores": errores,
+                "fuentes": estado.get("fuentes_vistas", []),
+            }
+        ]
         registrar_evento(
             "validacion_cruzada",
-            intento=estado.get("intentos_validacion", 0) + 1,
+            intento=len(intentos),
+            etapa=veredicto.etapa,
             aprobado=veredicto.aprobado,
-            estructurado_ok=ok,
-            veredicto_resumen=veredicto.resumen[:300] or render_veredicto(veredicto)[:300],
+            veredicto_resumen=render_veredicto(veredicto)[:300],
         )
-        return {
-            "veredicto": dump_state(veredicto),
-            "borrador": borrador,
-            "intentos_validacion": estado.get("intentos_validacion", 0) + 1,
-        }
+        return {"intentos": intentos}
+
+    def reflexionar(estado: EstadoOrquestador) -> dict:
+        # Auto-reflexión: convierte el rechazo en una lección y decide reparar o regenerar
+        ultimo = estado["intentos"][-1]
+        motivos = ultimo["veredicto"]["motivos"] or [ultimo["veredicto"]["resumen"]]
+        previas = estado.get("lecciones", [])
+        r = invocar_estructurado(
+            Reflexion,
+            prompt_reflexion(estado["peticion"], ultimo["borrador"], motivos, previas),
+            EVAL_MODEL,
+            Reflexion(diagnostico="; ".join(motivos), plan="Corrige esos incumplimientos antes de entregar."),
+        )
+        n, modo = len(estado["intentos"]), modo_reintento(ultimo)
+        registrar_evento("reflexion", intento=n, modo=modo, diagnostico=r.diagnostico[:300], plan=r.plan[:300])
+        # reglas_nuevas solo se consumen en el entrenamiento (scripts/entrenar_reglas.py)
+        nuevas = estado.get("reglas_nuevas", []) + ([r.regla_general] if r.regla_general else [])
+        return {"lecciones": previas + [leccion(n, r)], "reglas_nuevas": nuevas, "modo": modo}
 
     def aprobacion_docente(estado: EstadoOrquestador) -> dict:
-        veredicto, _ = safe_parse(
-            VeredictoValidacion,
-            estado.get("veredicto"),
-            fallback=VeredictoValidacion(
-                aprobado=False,
-                motivos=["veredicto_ausente"],
-                resumen="Sin veredicto tipado",
-            ),
-        )
-        examen = None
-        if estado.get("examen"):
-            examen, _ = safe_parse(ExamenGenerado, estado["examen"])
-        borrador = estado.get("borrador") or (render_examen(examen) if examen else "")
+        intentos = estado["intentos"]
+        elegido = mejor_intento(intentos)
+        borrador = elegido["borrador"]
         payload = PayloadAprobacion(
             borrador=borrador,
-            veredicto=veredicto,
-            examen=examen,
+            veredicto=safe_parse(VeredictoValidacion, elegido["veredicto"])[0],
+            examen=safe_parse(ExamenGenerado, elegido["examen"])[0],
         )
         decision = interrupt(dump_state(payload))
         aprobado = str(decision).strip().lower() in {"si", "sí", "s", "yes", "y"}
         registrar_evento(
             "aprobacion_docente",
             decision="aprobado" if aprobado else "rechazado",
+            intento_elegido=intentos.index(elegido) + 1,
+            intentos=len(intentos),
         )
         if aprobado:
             store.guardar(
@@ -242,6 +316,8 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
                 "historico_generaciones",
                 {"tipo": "examen", "contenido": borrador},
             )
+            if user_id := rag_user_id_actual():
+                memoria_casos.archivar(user_id, estado["peticion"], borrador)
             return {"respuesta_final": borrador}
         return {
             "respuesta_final": (
@@ -256,24 +332,6 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     def ruta_desde_router(estado: EstadoOrquestador) -> str:
         return estado["agente_destino"]
 
-    def ruta_tras_validacion(estado: EstadoOrquestador) -> str:
-        veredicto, ok = safe_parse(
-            VeredictoValidacion,
-            estado.get("veredicto"),
-            fallback=VeredictoValidacion(
-                aprobado=False,
-                motivos=["salida_no_estructurada"],
-                resumen="Veredicto inválido en estado",
-            ),
-        )
-        if not ok:
-            registrar_evento("routing_veredicto_invalido", motivos=veredicto.motivos)
-        if veredicto.aprobado:
-            return "aprobacion_docente"
-        if estado.get("intentos_validacion", 0) >= MAX_REINTENTOS_VALIDACION:
-            return "aprobacion_docente"
-        return "exam_generator"
-
     grafo = StateGraph(EstadoOrquestador)
     grafo.add_node("router", router)
     grafo.add_node("curriculum", nodo_curriculum)
@@ -281,6 +339,7 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     grafo.add_node("rubric", nodo_rubric)
     grafo.add_node("tutor", nodo_tutor)
     grafo.add_node("validar", validar)
+    grafo.add_node("reflexionar", reflexionar)
     grafo.add_node("aprobacion_docente", aprobacion_docente)
     grafo.add_node("finalizar", finalizar)
 
@@ -292,8 +351,11 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     )
     grafo.add_edge("exam_generator", "validar")
     grafo.add_conditional_edges(
-        "validar", ruta_tras_validacion, ["aprobacion_docente", "exam_generator"]
+        "validar",
+        lambda estado: siguiente_paso(estado["intentos"]),
+        ["aprobacion_docente", "reflexionar"],
     )
+    grafo.add_edge("reflexionar", "exam_generator")
     grafo.add_edge("curriculum", "finalizar")
     grafo.add_edge("rubric", "finalizar")
     grafo.add_edge("tutor", "finalizar")

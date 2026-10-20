@@ -1,5 +1,9 @@
 # Revisión de implementación e interacción de agentes
 
+> Instantánea histórica generada por `scripts/review_agents_pipeline.py --write-doc`. El
+> flujo actual (Reflexion, Chroma, criterios de rúbrica) está en [arquitectura.md](arquitectura.md);
+> vuelve a ejecutar el script para regenerarla.
+
 **Generado (UTC):** 2026-09-16T03:29:14.381078+00:00
 **Resultado global:** PASS
 

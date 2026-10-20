@@ -209,12 +209,15 @@ def _openai_embed_kwargs(sel: ModelSelection) -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=4)
-def get_chat_model(temperature: float = 0) -> ChatOpenAI:
+@lru_cache(maxsize=8)
+def get_chat_model(temperature: float = 0, model: str | None = None) -> ChatOpenAI:
+    """Chat del perfil activo; `model` cambia solo el id (mismo proveedor y URL)."""
     sel = get_selection()
     kwargs = _openai_chat_kwargs(sel)
+    if model:
+        kwargs["model"] = model
     logger.info(
-        "Chat model: provider=%s model=%s", sel.llm_provider, sel.llm_model
+        "Chat model: provider=%s model=%s", sel.llm_provider, kwargs["model"]
     )
     return ChatOpenAI(temperature=temperature, **kwargs)
 
@@ -231,13 +234,13 @@ def get_embeddings() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(**kwargs)
 
 
-def get_structured_model(schema: Any, temperature: float = 0) -> Any:
+def get_structured_model(schema: Any, temperature: float = 0, model: str | None = None) -> Any:
     """Modelo con salida Pydantic estable para cada proveedor.
 
     - ``openai_compatible`` (vLLM): function_calling (response_format JSON falla).
     - ``ollama`` / OpenAI cloud: método por defecto de LangChain.
     """
-    llm = get_chat_model(temperature=temperature)
+    llm = get_chat_model(temperature=temperature, model=model)
     if get_selection().llm_provider == "openai_compatible":
         return llm.with_structured_output(schema, method="function_calling")
     return llm.with_structured_output(schema)

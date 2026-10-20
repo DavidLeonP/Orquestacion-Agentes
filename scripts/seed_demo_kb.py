@@ -1,58 +1,26 @@
 """Carga los documentos demo de data/ como KB de un usuario."""
 
+import sys
 from pathlib import Path
 
-from src.config import INDICES, RAIZ
-from src.db.models import Document, User
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.db.models import User
 from src.db.session import SessionLocal
-from src.ingestion.mysql_pipeline import ingest_pendientes
+from src.ingestion.carpeta_data import sincronizar_carpeta_data
 
 
 def seed(email: str = "demo@instituto.local") -> None:
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == email).first()
-        if user is None:
-            raise SystemExit(
-                f"Usuario {email} no existe. Regístralo primero vía POST /auth/register"
-            )
-
-        creados = 0
-        for indice, carpeta in INDICES.items():
-            if not carpeta.exists():
-                continue
-            for ruta in sorted(carpeta.glob("*")):
-                if ruta.suffix.lower() not in {".txt", ".md"}:
-                    continue
-                exists = (
-                    db.query(Document)
-                    .filter(
-                        Document.user_id == user.id,
-                        Document.indice == indice,
-                        Document.filename == ruta.name,
-                    )
-                    .first()
-                )
-                if exists:
-                    continue
-                db.add(
-                    Document(
-                        user_id=user.id,
-                        indice=indice,
-                        filename=ruta.name,
-                        content_text=ruta.read_text(encoding="utf-8"),
-                        content_type="text/plain",
-                        status="pending",
-                        metadatos={"fuente": ruta.name},
-                    )
-                )
-                creados += 1
-        db.commit()
-        print(f"Documentos pendientes creados: {creados}")
-        result = ingest_pendientes(db, user.id)
-        print(f"Ingest: {result}")
     finally:
         db.close()
+    if user is None:
+        raise SystemExit(
+            f"Usuario {email} no existe. Regístralo primero vía POST /auth/register"
+        )
+    print(f"Ingest: {sincronizar_carpeta_data(user.id)}")
 
 
 if __name__ == "__main__":

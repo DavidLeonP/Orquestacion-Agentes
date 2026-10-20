@@ -8,20 +8,22 @@ Detalle de módulos clave (no es un listado exhaustivo del repo).
 flowchart LR
     START([START]) --> router
     router -->|alumno| tutor
-    router -->|docente LLM| curriculum
-    router -->|docente LLM| exam_generator
-    router -->|docente LLM| rubric
+    router -->|docente regla o LLM| curriculum
+    router -->|docente regla o LLM| exam_generator
+    router -->|docente regla o LLM| rubric
     curriculum --> finalizar
     rubric --> finalizar
     tutor --> finalizar
     exam_generator --> validar
-    validar -->|veredicto.aprobado o max intentos| aprobacion_docente
-    validar -->|cambios requeridos| exam_generator
+    validar -->|veredicto.aprobado o MAX_INTENTOS| aprobacion_docente
+    validar -->|rechazado| reflexionar
+    reflexionar -->|reparar o regenerar| exam_generator
     finalizar --> END([END])
     aprobacion_docente --> END
 ```
 
-**Archivo:** `src/orchestrator/graph.py`  
+**Archivo:** `src/orchestrator/graph.py` (decisiones puras en `reflexion.py`, `routing.py`;
+criterios de rúbrica en `criterios.py`)  
 **Factory:** `construir_grafo(checkpointer=..., memory_backend=...)`
 
 ## 4.2 Grafo SQL Agent
@@ -50,23 +52,7 @@ flowchart TD
 gate de grounding (`exigir_consulta`) que exige al menos una consulta exitosa
 (`queries_ok` en el estado) antes de aceptar `SubmitFinalAnswer`.
 
-## 4.3 Pipeline de ingest MySQL
-
-```mermaid
-flowchart TD
-    Doc[Document pending] --> Split[RecursiveCharacterTextSplitter]
-    Split --> Embed["get_embeddings registry"]
-    Embed --> Del[Borrar chunks previos del document_id]
-    Del --> InsC[INSERT chunks]
-    InsC --> InsE["INSERT chunk_embeddings model dims"]
-    InsE --> Idx[status indexed]
-    Idx --> Cache[invalidar_cache_retriever]
-```
-
-**Archivo:** `src/ingestion/mysql_pipeline.py`  
-**Embeddings:** `src/llm/registry.py` (`active_embedding_model`)
-
-## 4.2b Medios → texto (antes del ingest)
+## 4.3 Medios → texto (antes del ingest)
 
 ```mermaid
 flowchart LR
@@ -82,39 +68,59 @@ flowchart LR
 **Archivos:** `src/ingestion/extractors/`, `module_media.py`, `cost_estimate.py`  
 **Scripts:** `transcribe_and_index_module.py`, `estimate_module_ingest.py`, `review_agents_pipeline.py`
 
-## 4.3 Retriever híbrido
+## 4.4 Pipeline de ingest (MySQL + Chroma)
+
+```mermaid
+flowchart TD
+    Doc[Document pending] --> Split[RecursiveCharacterTextSplitter]
+    Split --> Embed["get_embeddings registry"]
+    Embed --> Del[Borrar chunks previos y sus vectores en Chroma]
+    Del --> InsC[INSERT chunks]
+    InsC --> InsE["INSERT chunk_embeddings model dims"]
+    InsE --> Up["upsert Chroma kb_modelo"]
+    Up --> Idx[status indexed]
+    Idx --> Cache[invalidar_cache_retriever]
+```
+
+**Archivos:** `src/ingestion/mysql_pipeline.py`, `src/rag/kb_vectores.py`;
+`src/ingestion/carpeta_data.py` carga `data/` (CLI, API legado, seed).  
+**Embeddings:** `src/llm/registry.py` (`active_embedding_model`)
+
+## 4.5 Retriever híbrido
 
 ```mermaid
 flowchart TD
     Q[consulta] --> Lex[BM25 ranking]
-    Q --> Sem["embed_query + cosine filtro model"]
+    Q --> Sem["embed_query + Chroma HNSW where user_id, indice"]
+    Sem -. Chroma falla .-> Cos["coseno sobre chunk_embeddings"]
     Lex --> RRF[RRF fusion k=60]
     Sem --> RRF
     RRF --> TopK[top-k chunks con metadatos fuente]
 ```
 
-**Archivo:** `src/rag/mysql_store.py`  
+**Archivos:** `src/rag/mysql_store.py`, `src/rag/kb_vectores.py`, `src/rag/rrf.py`  
 **Tools:** `src/rag/tools.py` (`buscar_apuntes`, `buscar_examenes_historicos`, `buscar_rubricas`, `buscar_curriculo`)
 
-## 4.5 Paquetes Python relevantes
+## 4.6 Paquetes Python relevantes
 
 | Paquete | Rol |
 |---------|-----|
 | `src/api/` | Contenedor HTTP JWT |
-| `src/llm/` | Model registry (OpenAI / Ollama) |
+| `src/llm/` | Model registry (OpenAI / vLLM / Ollama) |
 | `src/db/` | Modelos y sesión SQLAlchemy |
-| `src/orchestrator/` | Grafo LangGraph (supervisor multi-agente) |
-| `src/agents/` | Prompts, ReAct y contratos Pydantic |
+| `src/orchestrator/` | Grafo LangGraph + Reflexion, router por reglas, criterios de rúbrica |
+| `src/agents/` | Prompts, agentes `create_agent` + middleware y contratos Pydantic |
 | `src/sql_agent/` | Grafo LangGraph NL→SQL, validador AST, ejecutor trust-no-one |
-| `src/rag/` | Contexto user_id + retriever MySQL + tools |
-| `src/ingestion/` | Indexación a MySQL + extractores PDF/vídeo |
-| `src/memory/` | LTM MySQL / JSON legacy |
+| `src/rag/` | Contexto user_id y evidencia + retriever híbrido + índice Chroma + tools |
+| `src/ingestion/` | Indexación a MySQL/Chroma + carga de `data/` + extractores PDF/vídeo |
+| `src/memory/` | LTM MySQL / JSON legacy + memoria de casos (Chroma) + manual de reglas |
+| `src/evaluation/` | Juez LLM externo, corrida de evaluación y métricas |
 | `src/observability/` | Trazas JSONL + LangSmith |
 | `app_streamlit/` | UI cliente HTTP |
-| `scripts/` | Ops, transcribe/index, review agentes, estimate coste |
-| `tests/` | Pytest (registry, contratos, SQL Agent, smoke API) |
+| `scripts/` | Ops, transcribe/index, review agentes, estimate coste, reindex_chroma, evaluar, entrenar_reglas |
+| `tests/` | Pytest sin red (agentes, grafo con fakes, RAG/Chroma, memoria, evaluación, front, SQL Agent) |
 
-## 4.6 Contrato de una solicitud (estados)
+## 4.7 Contrato de una solicitud (estados)
 
 ```mermaid
 stateDiagram-v2
@@ -127,7 +133,7 @@ stateDiagram-v2
     failed --> [*]
 ```
 
-## 4.7 Contrato de una consulta SQL (estados)
+## 4.8 Contrato de una consulta SQL (estados)
 
 ```mermaid
 stateDiagram-v2

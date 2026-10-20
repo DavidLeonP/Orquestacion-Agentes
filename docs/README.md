@@ -2,12 +2,16 @@
 
 | Documento | Contenido |
 |---|---|
-| [arquitectura.md](arquitectura.md) | Diseño Agentic AI: orquestación, KB MySQL por usuario, model registry, stack |
+| [arquitectura.md](arquitectura.md) | Diseño Agentic AI: orquestación, KB MySQL + Chroma, Reflexion, memoria, evaluación, stack |
 | [implementacion.md](implementacion.md) | Código, API JWT, Streamlit, Docker, VPS y pruebas |
-| [diagramas-secuencia.md](diagramas-secuencia.md) | Auth, ingest, medios PDF/vídeo, tutoría, examen HITL, consulta SQL, agentes, aislamiento || [c4/](c4/) | Modelo C4 (contexto → código) |
-| [resultados-pipeline.md](resultados-pipeline.md) | Resultados de ejecución del pipeline vía API |
+| [diagramas-secuencia.md](diagramas-secuencia.md) | Auth, ingest, medios PDF/vídeo, tutoría, examen HITL con Reflexion, consulta SQL, agentes, aislamiento |
+| [c4/](c4/) | Modelo C4 (contexto → código) |
+| [resultados-pipeline.md](resultados-pipeline.md) | Resultados de ejecución del pipeline vía API (instantánea) |
 | [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md) | Métricas PDF/vídeo: OpenAI vs vLLM USFQ |
-| [revision-implementacion-agentes.md](revision-implementacion-agentes.md) | Salida del pipeline de revisión de agentes |
+| [revision-implementacion-agentes.md](revision-implementacion-agentes.md) | Salida del pipeline de revisión de agentes (instantánea generada) |
+
+Evaluación y aprendizaje (`eval/`, `scripts/evaluar.py`, `scripts/entrenar_reglas.py`):
+[arquitectura.md](arquitectura.md) §5.3–5.5.
 
 ## Arranque rápido (camino actual)
 
@@ -33,3 +37,8 @@ SQL Agent (solo docentes): configura `AGENT_DB_URI` en `.env` y usa la página
 Detalle en [arquitectura.md](arquitectura.md) §6.5 e [implementacion.md](implementacion.md) §5.
 
 Material de origen en `Documentacion/` (requerimiento, base de definición y papers PDF).
+El notebook `taller_tenant_kg_v4.ipynb` es la fuente metodológica de los patrones
+adaptados aquí (Reflexion, verificador determinista, memoria de casos, juez externo);
+las referencias «notebook §…» de los docstrings apuntan a él. No es código en tiempo
+de ejecución: la implementación vive en `src/orchestrator/`, `src/rag/` y
+`src/evaluation/`.

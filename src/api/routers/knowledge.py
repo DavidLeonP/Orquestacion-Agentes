@@ -16,6 +16,7 @@ from src.config import INDICES_NOMBRES
 from src.db.models import Chunk, Document, User
 from src.db.session import get_db
 from src.ingestion.mysql_pipeline import ingest_pendientes, reprocess_documento
+from src.rag import kb_vectores
 from src.rag.mysql_store import invalidar_cache_retriever
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -123,6 +124,7 @@ def borrar_documento(
         raise HTTPException(404, detail="Documento no encontrado")
     db.delete(doc)
     db.commit()
+    kb_vectores.borrar_documento(document_id)
     invalidar_cache_retriever(user.id)
 
 

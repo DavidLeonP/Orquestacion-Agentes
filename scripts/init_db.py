@@ -1,5 +1,10 @@
 """Crea todas las tablas en MySQL remoto."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from src.db.models import (  # noqa: F401
     Approval,
     Chunk,

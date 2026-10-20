@@ -98,3 +98,18 @@ def test_describe_incluye_campos_clave():
     assert d["llm_provider"] == "ollama"
     assert d["llm_model"]
     assert d["embedding_model"]
+
+
+def test_get_chat_model_override_de_modelo(monkeypatch):
+    from src.llm import registry
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(registry.config, "OPENAI_API_KEY", "sk-test")
+    base = registry.get_chat_model(temperature=0)
+    otro = registry.get_chat_model(temperature=0, model="modelo-evaluador")
+    assert otro is not base
+    assert otro.model_name == "modelo-evaluador"
+    assert base.model_name == registry.get_selection().llm_model
+    assert registry.get_chat_model(temperature=0, model="modelo-evaluador") is otro  # cacheado
+    invalidate_registry_cache()
+    assert registry.get_chat_model(temperature=0, model="modelo-evaluador") is not otro

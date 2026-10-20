@@ -83,6 +83,7 @@ AGENT_LABELS: dict[str, str] = {
     "router": "Clasificando la petición",
     "exam_generator": "Generando el examen",
     "validar": "Validando con la rúbrica",
+    "reflexionar": "Aprendiendo del rechazo",
     "curriculum": "Preparando el plan curricular",
     "rubric": "Diseñando la rúbrica",
     "tutor": "El tutor está respondiendo",
@@ -93,7 +94,8 @@ AGENT_LABELS: dict[str, str] = {
 NODE_HINTS: dict[str, str] = {
     "router": "El supervisor decide qué agente debe atenderte.",
     "exam_generator": "Consulta apuntes, exámenes y rúbricas. Puede tardar 30–60 s.",
-    "validar": "El agente de rúbrica revisa el borrador.",
+    "validar": "Reglas automáticas y luego el agente de rúbrica revisan el borrador.",
+    "reflexionar": "Diagnostica el rechazo y planifica el siguiente intento.",
     "curriculum": "Organiza sesiones y contenidos del currículo.",
     "rubric": "Propone criterios de evaluación.",
     "tutor": "Responde con base en tu material privado.",
@@ -108,6 +110,7 @@ PHASE_ORDER: list[str] = [
     "rubric",
     "tutor",
     "validar",
+    "reflexionar",
     "aprobacion_docente",
     "finalizar",
 ]

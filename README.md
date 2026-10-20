@@ -3,7 +3,9 @@
 Sistema multi-agente (Agentic AI) que asiste a docentes y alumnado, con
 **RAG privado por usuario en MySQL**, **API REST JWT** y **UI Streamlit**.
 Cuatro agentes (Curriculum, Exam Generator, Rubric, Tutor) coordinados por
-LangGraph; LLM/embeddings vía **model registry** (OpenAI u Ollama). Además,
+LangGraph, con **Reflexion** en la generación de exámenes (juez híbrido: reglas en Python
++ Rubric Agent); LLM/embeddings vía **model registry** (OpenAI, vLLM USFQ u Ollama) e
+índice vectorial **Chroma** embebido. Además,
 un **SQL Agent** independiente (`src/sql_agent/`) permite a los docentes
 consultar en lenguaje natural la base de datos académica del instituto
 (matrícula, notas, asistencia), con validación AST de solo lectura.
@@ -19,21 +21,24 @@ Documentación:
 ## Estructura
 
 ```
-data/                  Material de ejemplo / seed (CLI legado)
+data/                  Material de ejemplo / seed (main.py ingestar, seed_demo_kb)
   apuntes/  examenes/  rubricas/  curriculo/
 src/
   api/                 API JWT (auth, knowledge, requests, sql-queries, HITL)
-  llm/                 Model registry (OpenAI / Ollama)
-  ingestion/           Pipeline MySQL (+ Chroma legado)
-  rag/                 Retriever MySQL híbrido + tools RAG
-  agents/              Los 4 agentes especializados (ReAct) y schemas
-  orchestrator/        Grafo supervisor de LangGraph
+  llm/                 Model registry (OpenAI / vLLM / Ollama)
+  ingestion/           Pipeline MySQL + índice Chroma, carga de data/
+  rag/                 Retriever híbrido (BM25 + Chroma + RRF) + tools RAG
+  agents/              Los 4 agentes especializados (create_agent) y schemas
+  orchestrator/        Grafo supervisor + Reflexion, router por reglas, criterios de rúbrica
+  evaluation/          Juez externo y métricas (scripts/evaluar.py, entrenar_reglas.py)
   sql_agent/           SQL Agent: consultas en lenguaje natural a la BD de negocio
-  memory/              Memoria de largo plazo
+  memory/              Memoria de largo plazo, memoria de casos y manual de reglas
+eval/                  Conjuntos prueba / entrenamiento / reservado
 app_streamlit/         UI Streamlit (cliente HTTP de la API)
 docs/                  Arquitectura, implementación, C4, secuencias
 main.py                CLI de demostración (legado)
-scripts/               init_db, seed_demo_kb, pipeline, remote.sh
+scripts/               init_db, seed_demo_kb, run_test_pipeline, remote.sh,
+                       reindex_chroma, evaluar, entrenar_reglas
 ```
 
 ## Puesta en marcha (recomendado)
@@ -44,6 +49,9 @@ python -m venv .venv
 pip install -r requirements.txt
 cp .env.example .env      # DATABASE_URL, JWT_SECRET, OPENAI_API_KEY o LLM_PROFILE
 python scripts/init_db.py
+# Registra primero el usuario demo (la API debe estar levantada, ver abajo) o
+# créalo desde la UI; seed_demo_kb no lo crea para no pisar su contraseña:
+#   POST /auth/register {"email":"demo@instituto.local","password":"demo1234","rol":"docente"}
 python scripts/seed_demo_kb.py
 ```
 
@@ -67,10 +75,25 @@ curl http://localhost:8000/health   # API JWT
 open http://localhost:8501          # UI Streamlit
 ```
 
-### CLI legado (Chroma / `data/`)
+### Evaluación y aprendizaje
 
 ```bash
-python main.py ingestar
+python scripts/reindex_chroma.py              # opcional: vectores MySQL -> Chroma
+python scripts/evaluar.py --conjunto prueba   # juez externo sobre eval/prueba.jsonl
+python scripts/entrenar_reglas.py             # manual de reglas del Exam Generator
+python scripts/evaluar.py --conjunto reservado
+python scripts/evaluar.py --calibrar          # juez interno vs. decisiones del docente
+```
+
+Detalle en [docs/arquitectura.md §5.3–5.5](docs/arquitectura.md).
+
+### CLI legado (sin JWT)
+
+Usa la misma KB MySQL que la API, con el usuario `LEGACY_API_USER_EMAIL`
+(`demo@instituto.local` por defecto).
+
+```bash
+python main.py ingestar      # data/ -> KB MySQL del usuario (+ Chroma)
 python main.py demo
 python main.py docente "Genera un examen de 6 preguntas sobre electricidad para 3º ESO"
 python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
@@ -132,16 +155,20 @@ curl http://127.0.0.1:8000/health
 Overrides: `LLM_PROVIDER`, `LLM_MODEL`, `LLM_BASE_URL`, `EMBEDDING_PROVIDER`,
 `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OLLAMA_BASE_URL`.
 Los agentes y contratos Pydantic no cambian al cambiar de modelo.  
-Embeddings de distintos modelos pueden coexistir en MySQL; la búsqueda semántica solo usa el modelo activo (filtro por `chunk_embeddings.model`). Si cambias de embedding, reprocesa la KB para vectores del nuevo modelo (BM25 sigue disponible).
+Embeddings de distintos modelos pueden coexistir: MySQL guarda cada vector con su modelo y Chroma usa una colección por modelo (`kb_<modelo>`), que el retriever rellena solo desde MySQL. Si cambias de embedding, reprocesa la KB para vectores del nuevo modelo (BM25 sigue disponible).
 
 ## Flujo de un examen
 
-1. El router clasifica la petición y la envía al Exam Generator Agent.
-2. El agente consulta exámenes históricos, apuntes y rúbricas (bucle ReAct).
-3. El Rubric Agent valida el borrador contra los criterios del departamento
-   (validación cruzada); si hay incumplimientos, se regenera.
-4. El grafo se interrumpe y pide la aprobación del docente (human-in-the-loop).
-5. Si se aprueba, el examen pasa al histórico del centro (ciclo de mejora).
+1. El router lo enruta por regla ("genera un examen…") o, si es ambiguo, con el LLM; carga
+   los criterios de la rúbrica del docente y exámenes aprobados parecidos.
+2. El Exam Generator consulta exámenes históricos, apuntes y rúbricas (bucle ReAct).
+3. Validación híbrida: Python comprueba nº de preguntas, puntos, soluciones, fuentes
+   citadas y criterios de la rúbrica (p. ej. pregunta de seguridad, % numérico); si pasan,
+   el Rubric Agent valida el resto.
+4. Si se rechaza, Reflexion escribe una lección y el examen se **repara** (se corrige el
+   hueco) o se **regenera**, hasta `MAX_INTENTOS`.
+5. El grafo se interrumpe y le muestra al docente el mejor intento (human-in-the-loop).
+6. Si se aprueba, el examen pasa al histórico y a la memoria de casos (ciclo de mejora).
 
 Toda respuesta cita las fuentes internas consultadas; los agentes no responden
 "en general".

@@ -1,6 +1,7 @@
 """Rubric Agent: aplica/genera criterios de evaluación y valida material."""
 
 from src.agents.base import crear_agente
+from src.config import EVAL_MODEL
 from src.rag.tools import buscar_curriculo, buscar_rubricas
 
 PROMPT = """Eres el Rubric Agent de un instituto de educación secundaria.
@@ -23,4 +24,5 @@ B) CREACIÓN/APLICACIÓN de rúbricas: genera criterios de evaluación alineados
 
 
 def crear_rubric_agent():
-    return crear_agente("rubric", PROMPT, [buscar_rubricas, buscar_curriculo])
+    # Como juez de otro agente conviene un modelo más capaz que el Actor (EVAL_MODEL)
+    return crear_agente("rubric", PROMPT, [buscar_rubricas, buscar_curriculo], model=EVAL_MODEL)

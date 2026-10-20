@@ -9,14 +9,15 @@ La arquitectura conceptual está en [arquitectura.md](arquitectura.md).
 |---|---|---|
 | API JWT | FastAPI + Uvicorn | `src/api/` (`src.api.main:app`) |
 | UI | Streamlit (cliente HTTP) | `app_streamlit/` |
-| Orquestación multi-agente | LangGraph (supervisor + ReAct) | `src/orchestrator/`, `src/agents/` |
+| Orquestación multi-agente | LangGraph (supervisor + Reflexion) + agentes `create_agent` | `src/orchestrator/`, `src/agents/` |
 | Contratos entre agentes | Pydantic | `src/agents/schemas.py` |
-| Conocimiento (RAG) | MySQL: BM25 + embeddings + RRF | `src/ingestion/mysql_pipeline.py`, `src/rag/mysql_store.py` |
+| Conocimiento (RAG) | MySQL (fuente de verdad) + Chroma embebido (HNSW) + BM25 + RRF | `src/ingestion/mysql_pipeline.py`, `src/rag/` |
 | SQL Agent (consultas de negocio) | LangGraph (`StateGraph` a medida, no ReAct) | `src/sql_agent/` |
-| Model registry | OpenAI / Ollama vía perfiles | `src/llm/registry.py` |
-| Memoria | Checkpointer (sesión) + MySQL (LTM) | LangGraph + `src/memory/` |
+| Model registry | OpenAI / vLLM / Ollama vía perfiles | `src/llm/registry.py` |
+| Memoria | Checkpointer (sesión) + MySQL (LTM) + casos en Chroma + manual de reglas (JSON) | LangGraph + `src/memory/` |
+| Evaluación y entrenamiento | Juez LLM externo + métricas + manual de reglas | `eval/`, `src/evaluation/`, `scripts/evaluar.py`, `scripts/entrenar_reglas.py` |
 | Auth | JWT + bcrypt | `src/api/security.py` |
-| CLI legado | `main.py` (+ Chroma opcional) | `main.py`, `src/legacy_chat_api.py` |
+| CLI legado | `main.py` sobre la KB MySQL del usuario legado | `main.py`, `src/legacy_chat_api.py`, `src/contexto_usuario.py` |
 | Contenedor | Docker (API + UI) | `Dockerfile`, `docker-compose.yml`, `scripts/remote.sh` |
 
 ## 2. Estructura del repositorio
@@ -27,23 +28,27 @@ Orquestacion-Agentes/
 │   ├── Home.py
 │   ├── pages/                 # Conocimiento, Asistente, Historial, Aprobaciones
 │   └── lib/                   # api_client, session, ui, labels
-├── data/                      # Material de ejemplo / seed (CLI legado)
+├── data/                      # Material de ejemplo / seed (main.py ingestar, seed_demo_kb)
 ├── docs/
 │   ├── arquitectura.md
 │   ├── implementacion.md      # Este documento
 │   ├── diagramas-secuencia.md
 │   └── c4/
+├── eval/                      # Conjuntos prueba / entrenamiento / reservado (JSONL)
 ├── postman/
-├── scripts/                   # init_db, seed_demo_kb, run_test_pipeline, remote.sh
+├── scripts/                   # init_db, seed_demo_kb, run_test_pipeline, remote.sh,
+│                              # reindex_chroma, evaluar, entrenar_reglas
 ├── src/
 │   ├── api/                   # API JWT (auth, knowledge, requests, sql-queries, HITL)
-│   ├── agents/                # Curriculum, Exam, Rubric, Tutor + schemas
+│   ├── agents/                # Curriculum, Exam, Rubric, Tutor + base (create_agent) + schemas
 │   ├── llm/                   # Model registry
-│   ├── ingestion/             # mysql_pipeline (+ pipeline Chroma legado)
-│   ├── rag/                   # mysql_store, tools, chroma_client (legado)
-│   ├── memory/
-│   ├── orchestrator/graph.py
+│   ├── ingestion/             # mysql_pipeline, carpeta_data (data/ -> KB)
+│   ├── rag/                   # mysql_store, kb_vectores, chroma_client, rrf, tools, context
+│   ├── memory/                # mysql_store, store (JSON legado), casos (Chroma), reglas (JSON)
+│   ├── orchestrator/          # graph, reflexion, criterios, routing
+│   ├── evaluation/            # juez (oráculo / juez externo), corrida (métricas)
 │   ├── sql_agent/             # Grafo SQL Agent: validator, executor, database, tools, graph
+│   ├── contexto_usuario.py    # Usuario de RAG/memoria para CLI, API legado y evaluación
 │   ├── legacy_chat_api.py     # API chat legado /api/v1/* (opcional)
 │   └── config.py
 ├── tests/
@@ -60,8 +65,9 @@ Persistencia **API JWT** (fuente de verdad):
 |---|---|
 | MySQL | users, documents, chunks, chunk_embeddings, requests, approvals, memoria_*, sql_queries, sql_query_events |
 | `storage/logs/` | Trazas JSONL locales (opcional) |
-
-Chroma / `storage/chunks` solo aplican al **CLI / API legado**, no al happy path JWT.
+| `storage/metrics/` | Resultados de `scripts/evaluar.py` |
+| `storage/chroma/` | Índice vectorial derivado de `chunk_embeddings` y memoria de casos (ver [arquitectura.md](arquitectura.md) §4.3) |
+| `storage/reglas_aprendidas.json` | Manual de reglas del Exam Generator (`scripts/entrenar_reglas.py`) |
 
 ## 3. Flujo de conocimiento (API)
 
@@ -74,7 +80,9 @@ flowchart LR
     Docs --> Pipe["mysql_pipeline"]
     Pipe --> Emb["get_embeddings registry"]
     Pipe --> MySQL["chunks + chunk_embeddings"]
-    MySQL --> Hybrid["mysql_store BM25+cosine+RRF"]
+    Pipe --> Chroma["Chroma kb_modelo (upsert / borrado)"]
+    MySQL --> Hybrid["mysql_store: BM25 + Chroma HNSW + RRF"]
+    Chroma --> Hybrid
     Hybrid --> Tools["rag/tools.py"]
     Tools --> Agents["Agentes ReAct"]
 ```
@@ -87,16 +95,23 @@ flowchart LR
 3. Ingestar pendientes: `POST /knowledge/ingest` (o botón en **Conocimiento**).
 4. Opcional: `POST /knowledge/documents/{id}/reprocess` tras editar.
 
-Seed demo: `python scripts/seed_demo_kb.py` (usuario `demo@instituto.local` / `demo1234`).
+Seed demo: `python scripts/seed_demo_kb.py` (usuario `demo@instituto.local` /
+`demo1234`, que debe existir antes: regístralo con `POST /auth/register` o en la UI;
+el seed no lo crea para no pisar su contraseña).
 
-### 3.2 Búsqueda híbrida (MySQL)
+### 3.2 Búsqueda híbrida
 
 Cada tool RAG (`buscar_apuntes`, …):
 
 1. BM25 sobre chunks del `user_id` + índice.
-2. Embedding de consulta + coseno solo contra filas con `chunk_embeddings.model` = modelo activo.
-3. Fusión RRF (`k=60`).
-4. Devuelve trozos con metadatos de fuente.
+2. Ranking semántico según `VECTOR_BACKEND`:
+   - `chroma` (por defecto): HNSW coseno en la colección `kb_<modelo>` filtrada por
+     `user_id` e `indice`. Si le faltan vectores, el retriever los copia desde
+     `chunk_embeddings` sin volver a embeber (`scripts/reindex_chroma.py` lo hace de una vez).
+   - `mysql`: coseno en Python contra `chunk_embeddings` del modelo activo (también es el
+     fallback si Chroma falla).
+3. Fusión RRF por id de chunk (`k=60`, `src/rag/rrf.py`).
+4. Devuelve trozos con metadatos de fuente y los anota como evidencia del agente en curso.
 
 Si cambias de modelo de embedding (`LLM_PROFILE` / overrides), **reprocesa** la KB para vectores del nuevo modelo (BM25 sigue disponible).
 
@@ -112,8 +127,9 @@ flowchart TD
     Router -->|rubric| Rubric
     Router -->|tutor| Tutor
     ExamGen --> Validar
-    Validar -->|aprobado o max reintentos| AprobacionDocente
-    Validar -->|cambios requeridos| ExamGen
+    Validar -->|aprobado o MAX_INTENTOS| AprobacionDocente
+    Validar -->|rechazado| Reflexionar
+    Reflexionar -->|reparar o regenerar| ExamGen
     Curriculum --> Finalizar
     Rubric --> Finalizar
     Tutor --> Finalizar
@@ -124,14 +140,21 @@ flowchart TD
 Comportamiento relevante:
 
 - **Alumno** → siempre Tutor (salvaguarda, sin LLM en el router).
-- **Examen** → Exam Generator → Rubric (`veredicto.aprobado` tipado) → `interrupt` HITL.
-- Contratos: `ExamenGenerado`, `VeredictoValidacion`, `PayloadAprobacion` en `src/agents/schemas.py`.
-- **Límite ReAct**: `MAX_ITERACIONES_REACT` en `src/config.py`.
+- **Docente** → reglas deterministas (`routing.py`) y, si son ambiguas, `DecisionRouter` (LLM).
+- **Examen** → Exam Generator → validación híbrida (constraints, fuentes y criterios de la
+  rúbrica en Python; después Rubric Agent) → Reflexion (`reparar` o `regenerar`) hasta
+  `MAX_INTENTOS` → `interrupt` HITL con el mejor intento. Detalle en
+  [arquitectura.md](arquitectura.md) §5.4.
+- Contratos: `ExamenGenerado`, `VeredictoValidacion`, `PayloadAprobacion`, `Reflexion`,
+  `CriteriosRubrica` en `src/agents/schemas.py`.
+- **Agentes**: `langchain.agents.create_agent` con middleware `error_como_observacion`
+  (un fallo de una tool vuelve al agente como observación). **Límite**:
+  `MAX_ITERACIONES_REACT` en `src/config.py`.
 - Chat/embeddings: `src/llm/registry.py` (`get_chat_model`, `get_embeddings`).
 
 ## 5. SQL Agent (consultas de negocio en lenguaje natural)
 
-Grafo independiente en `src/sql_agent/graph.py` — no es un agente ReAct (`create_react_agent`)
+Grafo independiente en `src/sql_agent/graph.py` — no es un agente ReAct (`create_agent`)
 como los de `src/agents/`, sino un `StateGraph` a medida con su propio loop de
 autocorrección SQL:
 
@@ -271,6 +294,11 @@ Ver `.env.example`. Claves:
 | `LLM_*` / `EMBEDDING_*` / `OPENAI_COMPAT_API_KEY` / `OLLAMA_BASE_URL` | Overrides del perfil |
 | `OPENAI_API_KEY` | Perfil cloud / provider openai |
 | `STREAMLIT_API_BASE_URL` | Base URL del cliente Streamlit |
+| `VECTOR_BACKEND` | `chroma` (por defecto, embebido en `storage/chroma`) \| `mysql` (coseno en Python) |
+| `EVAL_MODEL` | Rubric Agent, Reflector, extracción de criterios y consolidación del manual (vacío = modelo del perfil) |
+| `JUEZ_MODEL` | Juez externo de `scripts/evaluar.py` y oráculo de `entrenar_reglas.py` |
+| `UMBRAL_MEMORIA_CASOS` | Similitud mínima para usar un examen aprobado como pista (0,75) |
+| `LEGACY_API_USER_ID` / `LEGACY_API_USER_EMAIL` | Usuario del CLI y de la API legado (`demo@instituto.local`) |
 | `LANGCHAIN_*` | LangSmith opcional |
 | `SSH_*`, `DEPLOY_PATH`, `API_BASE_URL`, `DOCKER_IMAGE` | Despliegue VPS |
 | `CONTAINER_NAME`, `UI_CONTAINER_NAME`, `DOCKER_NETWORK` | Nombres de contenedores / red en VPS |
@@ -281,6 +309,7 @@ Bootstrap:
 
 ```bash
 python scripts/init_db.py
+# Registra antes el usuario demo (POST /auth/register o UI): demo@instituto.local / demo1234
 python scripts/seed_demo_kb.py
 ```
 
@@ -301,8 +330,9 @@ OPENAI_COMPAT_API_KEY=local
 ```
 
 Verifica model IDs y conectividad con `python scripts/smoke_vllm_usfq.py`.
-Al cambiar de embedding, reprocesa la KB; el retriever filtra por modelo y no mezcla
-vectores incompatibles.
+Al cambiar de embedding, reprocesa la KB: cada modelo tiene su colección Chroma
+(`kb_<modelo>`) y el coseno MySQL filtra por `chunk_embeddings.model`, así que nunca se
+mezclan vectores incompatibles. El manual de reglas también está ligado al modelo de chat.
 
 ## 9. Docker y VPS
 
@@ -355,15 +385,26 @@ Variables de despliegue: `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD`, `DEPLOY_PATH`,
 ## 10. Pruebas
 
 ```bash
-# Unitarios / contratos / registry
-pytest tests/test_llm_registry.py tests/test_schemas_contratos.py -v
+# Suite sin red, LLM ni MySQL (tests/conftest.py bloquea la red externa y apaga LangSmith)
+pytest tests --ignore=tests/test_sql_agent_api.py --ignore=tests/test_sql_agent_graph.py --ignore=tests/test_pipeline_api.py
 
-# SQL Agent: validador AST (puro, sin LLM/BD) + grafo + API (requieren OPENAI_API_KEY)
+# SQL Agent: validador AST (puro) + grafo + API (estos dos requieren LLM real)
 pytest tests/test_sql_validator.py tests/test_sql_agent_graph.py tests/test_sql_agent_api.py -v
 
 # Smoke API (requiere MySQL + .env)
 python scripts/run_test_pipeline.py
+
+# Calidad con LLM real y juez externo (ver arquitectura.md §5.5)
+python scripts/evaluar.py --conjunto prueba
 ```
+
+| Tests | Qué cubren |
+|---|---|
+| `test_reflexion`, `test_grafo_reflexion`, `test_criterios` | Verificador determinista, criterios de rúbrica, reparar/regenerar, grafo completo con fakes |
+| `test_routing` | Enrutado por reglas y casos ambiguos |
+| `test_rag_vectores`, `test_memoria` | Chroma (aislamiento por usuario, sincronización), memoria de casos y manual de reglas |
+| `test_agentes_base`, `test_cli_legado` | `create_agent` + middleware, límite de iteraciones, CLI y API legado |
+| `test_evaluacion`, `test_front_ui` | Corrida de evaluación, juez, entrenamiento; progreso y pasos del front |
 
 Postman: [`postman/Asistente-IA-Educacion.postman_collection.json`](../postman/Asistente-IA-Educacion.postman_collection.json)  
 (puede incluir rutas legado `/api/v1/*`; para JWT usar Swagger `/docs` o Streamlit).
@@ -387,7 +428,9 @@ python main.py docente "Estructura la unidad de electricidad"
 python main.py alumno "¿Qué es la ley de Ohm?" alumno-042
 ```
 
-`ingestar` usa índices Chroma/`data/`; no sustituye la KB MySQL por usuario de la API JWT.
+El CLI (y `src/legacy_chat_api.py`) usa la misma KB MySQL que la API JWT, con el usuario
+`LEGACY_API_USER_ID` / `LEGACY_API_USER_EMAIL` (`demo@instituto.local` por defecto).
+`ingestar` carga en esa KB los documentos de `data/` que falten.
 `estimar-modulo` inventaría PDF/vídeo y calcula coste OpenAI vs USFQ **sin** embeddings.
 
 Transcribir e indexar (OpenAI Whisper + embeddings):
@@ -410,7 +453,12 @@ python scripts/review_agents_pipeline.py --write-doc
   [costo-computacional-embeddings-contabilidadFinaciera.md](costo-computacional-embeddings-contabilidadFinaciera.md).
 - Revisión de agentes: `scripts/review_agents_pipeline.py` →
   [revision-implementacion-agentes.md](revision-implementacion-agentes.md).
-- Examen aprobado se guarda en memoria LTM; reindexación automática en `examenes` pendiente.
+- Examen aprobado se guarda en memoria LTM y en la memoria de casos (Chroma, pistas de
+  estilo para exámenes parecidos); no se indexa automáticamente como documento de la
+  KB en el índice `examenes` (eso sigue haciéndose subiéndolo en Conocimiento).
+- Criterios de la rúbrica: se extraen de todas las rúbricas del usuario juntas (hasta 8000
+  caracteres). Si una petición pide algo que la rúbrica prohíbe (p. ej. solo teoría con un
+  % numérico mínimo), gana la rúbrica y el docente ve el motivo en el HITL.
 - Checkpointer `MemorySaver` in-process: se pierde al reiniciar el proceso API (HITL
   entre reinicios no se reanuda).
 - Un worker Uvicorn; cargas concurrentes pesadas no recomendadas en VPS pequeño
@@ -424,9 +472,12 @@ python scripts/review_agents_pipeline.py --write-doc
 
 | Directriz ([arquitectura.md](arquitectura.md)) | Dónde está en código |
 |---|---|
-| Supervisor + ReAct | `src/orchestrator/graph.py`, `src/agents/base.py` |
+| Supervisor + ReAct | `src/orchestrator/graph.py`, `src/orchestrator/routing.py`, `src/agents/base.py` |
+| Reflexion, juez híbrido y criterios de rúbrica | `src/orchestrator/reflexion.py`, `src/orchestrator/criterios.py` |
 | Contratos Pydantic | `src/agents/schemas.py` |
-| RAG MySQL multi-índice | `src/ingestion/mysql_pipeline.py`, `src/rag/mysql_store.py` |
+| RAG MySQL multi-índice + Chroma | `src/ingestion/mysql_pipeline.py`, `src/rag/mysql_store.py`, `src/rag/kb_vectores.py` |
+| Memoria de casos y manual de reglas | `src/memory/casos.py`, `src/memory/reglas.py` |
+| Evaluación y entrenamiento | `eval/`, `src/evaluation/`, `scripts/evaluar.py`, `scripts/entrenar_reglas.py` |
 | Model registry | `src/llm/registry.py` |
 | Human-in-the-loop | nodo `aprobacion_docente` + `POST /requests/{id}/approve` |
 | Cliente UI | `app_streamlit/` |

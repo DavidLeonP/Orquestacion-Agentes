@@ -52,7 +52,7 @@ flowchart TB
         Docs[documents]
         Chunks[chunks]
         Emb[chunk_embeddings]
-        Hibrida[BM25_plus_cosine_RRF]
+        Hibrida[BM25_plus_ChromaHNSW_RRF]
     end
     CA --> Hibrida
     EG --> Hibrida
@@ -99,19 +99,28 @@ intención (docente o alumno; planificar, examinar, evaluar o tutorizar) y enrut
 especializado. Cada agente es un subgrafo con sus propias tools.
 
 - Alumno → siempre `tutor` (regla de salvaguarda, sin LLM en el router).
-- Docente → clasificación LLM estructurada (`DecisionRouter`).
+- Docente → primero reglas deterministas (`src/orchestrator/routing.py`: verbo de acción +
+  objeto, p. ej. "genera… examen"); si ninguna o varias coinciden, clasificación LLM
+  estructurada (`DecisionRouter`). El evento `router` registra `metodo=regla|llm`.
 
 ### 3.2 Ciclo ReAct por agente
 
 Cada agente opera en bucle **ReAct** (razonar → llamar tool → observar → iterar), con
 límite de iteraciones (`MAX_ITERACIONES_REACT`) para acotar coste y bucles.
 
+- Si se agota el límite, `ejecutar_agente` devuelve una respuesta controlada
+  ("no consta evidencia suficiente") en vez de fallar la solicitud.
+- Cada tool RAG anota las fuentes devueltas (evidencia), que el verificador usa para
+  rechazar citas inventadas.
+- El evento `agente_fin` registra iteraciones, tools y tokens de entrada/salida.
+
 ### 3.3 Estado compartido tipado
 
 El estado del grafo transporta: petición, rol, `alumno_id`, agente destino, borradores
-legibles y **contratos Pydantic** (`constraints`, `examen`, `veredicto`) serializados
-como dict. El LLM puede cambiar; el routing (p. ej. regenerar vs HITL) usa campos
-tipados (`veredicto.aprobado`), no substrings del texto libre. Si la salida del LLM
+legibles y **contratos Pydantic** (`constraints`, `examen` y, por intento, el
+`veredicto`) serializados como dict; los campos de Reflexion se describen en §5.4. El LLM
+puede cambiar; el routing (p. ej. reflexionar vs HITL) usa campos tipados
+(`veredicto.aprobado`), no substrings del texto libre. Si la salida del LLM
 no valida, `safe_parse` aplica un fallback seguro para no corromper la solicitud.
 En API, el `thread_id` de la solicitud permite
 reanudar el HITL entre llamadas HTTP.
@@ -125,7 +134,8 @@ reanudar el HITL entre llamadas HTTP.
 
 ### 3.5 Mitigación de riesgos multi-agente
 
-1. **Validación cruzada**: todo examen pasa por el Rubric Agent.
+1. **Validación cruzada híbrida**: todo examen pasa primero por reglas deterministas y,
+   si las cumple, por el Rubric Agent. Los rechazos alimentan Reflexion (§5.4).
 2. **Límites de iteración** en cada bucle ReAct.
 3. **Human-in-the-loop**: `interrupt` → `waiting_approval` → `POST /requests/{id}/approve`.
 4. **Trazabilidad**: fuentes citadas + `request_events` + LangSmith opcional.
@@ -143,8 +153,10 @@ La fuente de verdad del conocimiento **no** es el filesystem ni Chroma en el flu
 | Vectores | `chunk_embeddings` | Embedding JSON + modelo/dims |
 
 Ingesta a demanda: `POST /knowledge/ingest` o `/documents/{id}/reprocess`
-(chunking → `get_embeddings()` del registry → upsert MySQL). Embeddings de distintos
-modelos pueden coexistir; la búsqueda semántica filtra por `chunk_embeddings.model`.
+(chunking → `get_embeddings()` del registry → upsert MySQL → upsert en Chroma
+`kb_<modelo>`; borrar o reprocesar un documento borra también sus vectores en Chroma).
+Embeddings de distintos modelos pueden coexistir: Chroma usa una colección por modelo y el
+coseno MySQL filtra por `chunk_embeddings.model` (§4.3).
 
 ### 4.2 RAG multi-índice (por usuario)
 
@@ -160,12 +172,31 @@ Cuatro índices lógicos; el contenido es **privado por usuario**:
 ### 4.3 Búsqueda híbrida
 
 - **Léxico**: BM25 sobre chunks del usuario/índice (en memoria a demanda).
-- **Semántico**: embedding de consulta + similitud coseno contra `chunk_embeddings`.
-- **Fusión**: Reciprocal Rank Fusion (RRF).
+- **Semántico** (`VECTOR_BACKEND`):
+  - `chroma` (por defecto): HNSW coseno en Chroma embebido (`storage/chroma`), colección
+    `kb_<modelo>` filtrada por `user_id` e `indice`. Es un índice derivado: si le faltan
+    vectores, el retriever los copia desde `chunk_embeddings` sin volver a embeber
+    (`scripts/reindex_chroma.py` lo hace de una vez).
+  - `mysql`: coseno en Python contra `chunk_embeddings` (legado; también es el fallback si
+    Chroma falla).
+- **Fusión**: Reciprocal Rank Fusion (RRF) por id de chunk (`src/rag/rrf.py`).
 
-Implementación: `src/rag/mysql_store.py` + tools en `src/rag/tools.py` (scoped por ContextVar).
+```mermaid
+flowchart LR
+    T[tool RAG] --> R[RetrieverHibridoMySQL]
+    R --> B[BM25 en memoria]
+    R --> C[(Chroma kb_modelo)]
+    C -. faltan vectores .-> M[(MySQL chunk_embeddings)]
+    B --> F[RRF]
+    C --> F
+    F --> T
+```
 
-### 4.5 Ingesta de módulos del profesor (PDF / vídeo)
+Implementación: `src/rag/mysql_store.py` + `src/rag/kb_vectores.py` + tools en
+`src/rag/tools.py` (scoped por ContextVar). Cada tool anota las fuentes devueltas en la
+evidencia del agente en curso (`src/rag/context.py`).
+
+### 4.4 Ingesta de módulos del profesor (PDF / vídeo)
 
 Además del alta manual de texto, el sistema acepta **módulos de conocimiento**
 (p. ej. `contabilidadFinaciera/`) con PDF y grabaciones MP4:
@@ -179,7 +210,7 @@ Además del alta manual de texto, el sistema acepta **módulos de conocimiento**
 Scripts: `estimate_module_ingest.py`, `transcribe_and_index_module.py`,
 `review_agents_pipeline.py`.
 
-### 4.6 Grounding estricto
+### 4.5 Grounding estricto
 
 Los agentes no responden "en general": deben apoyarse en la KB del usuario y citar fuentes.
 Si no hay evidencia, lo declaran.
@@ -201,9 +232,73 @@ el HITL tras `interrupt`.
 
 ### 5.3 Ciclo de mejora
 
-Al aprobar un examen se persiste feedback e histórico. La reindexación automática del
-examen aprobado en el índice `examenes` del usuario es evolución prevista (hook listo vía
-pipeline de ingest).
+El sistema aprende sin cambiar pesos, solo texto, en tres memorias que recibe el Exam Generator:
+
+| Memoria | Dónde | Se escribe | Alcance |
+|---|---|---|---|
+| Lecciones | estado `lecciones` | Nodo `reflexionar` tras cada rechazo | Una petición |
+| Casos | Chroma `casos_<modelo>` (`src/memory/casos.py`) | Al aprobar el docente (HITL) | Por usuario; pistas con similitud ≥ `UMBRAL_MEMORIA_CASOS` |
+| Manual de reglas | `storage/reglas_aprendidas.json` (`src/memory/reglas.py`) | `scripts/entrenar_reglas.py` | Global, ≤ 8 reglas, versionado y ligado al modelo |
+
+Al aprobar se persisten además feedback e histórico en MySQL (§5.2).
+
+### 5.4 Reflexion en la generación de exámenes
+
+Implementa Reflexion (Shinn et al., 2023) dentro del orquestador. Las decisiones están en
+[`src/orchestrator/reflexion.py`](../src/orchestrator/reflexion.py): funciones puras, sin LLM,
+probadas en `tests/test_reflexion.py`.
+
+```mermaid
+flowchart LR
+    EG[exam_generator] --> V{validar}
+    V -->|reglas fallan| R[reflexionar]
+    V -->|reglas OK| RA[Rubric Agent]
+    RA -->|rechaza| R
+    R -->|reparar: borrador + motivos| EG
+    R -->|regenerar: solo lecciones| EG
+    RA -->|aprueba| H[aprobacion_docente]
+    V -.->|MAX_INTENTOS| H
+```
+
+| Rol | Nodo | Qué hace | ¿LLM? |
+|---|---|---|---|
+| Actor | `exam_generator` | Genera con la petición, las constraints, el manual de reglas, los casos y las **lecciones**. En modo `reparar` recibe además el borrador rechazado y sus motivos | Sí |
+| Evaluador | `validar` | 1) `verificar_examen`: nº de preguntas, suma de puntos, numeración, soluciones, fuentes citadas ⊆ consultadas y **criterios de la rúbrica** (abajo). 2) Solo si pasa: Rubric Agent (`EVAL_MODEL`) | Mixto |
+| Auto-reflexión | `reflexionar` | Contrato `Reflexion` (diagnóstico + plan + regla general) → una lección; `modo_reintento` decide `reparar` o `regenerar` | Sí |
+| Selección | `aprobacion_docente` | `mejor_intento`: el aprobado; si ninguno, el primero con menos errores deterministas | No |
+
+**Criterios de la rúbrica comprobados en Python** (`src/orchestrator/criterios.py`). La
+rúbrica es material del docente (índice `rubricas`), así que sus reglas no van en el código:
+un LLM extrae una vez el contrato `CriteriosRubrica` (`requiere_seguridad`,
+`pct_min_numerico`, `tipos_minimos`), cacheado por usuario y hash del texto (se renueva al
+cambiar la rúbrica). Después se comprueba gratis con el `tipo` y la `puntuacion` de cada
+pregunta. Una rúbrica sin esos criterios no exige nada.
+
+**Reparar o regenerar** (`modo_reintento`). Si el borrador tiene preguntas y solo falla en
+criterios puntuales o en la revisión del Rubric Agent, se **repara**: se conserva lo que
+cumple y se corrige el hueco (p. ej. añadir la pregunta de seguridad). Si no tiene preguntas
+o sus fuentes no valen, se **regenera** con Reflexion pura (sin ver el borrador).
+
+Estado: `criterios`, `intentos` (examen, borrador, veredicto, errores y fuentes de cada
+intento), `lecciones` y `modo`. El veredicto indica su `etapa` (`determinista` o `llm`). Un
+fallo de reglas no gasta la llamada al Rubric Agent, y si el reintento empeora el examen,
+al docente le llega el intento anterior.
+
+### 5.5 Evaluación y entrenamiento (fuera del grafo)
+
+`eval/` tiene tres conjuntos, escritos desde `data/`: `prueba` (10), `entrenamiento` (8) y
+`reservado` (6). Incluyen peticiones sin verbo de acción claro para medir el router LLM. Cada línea trae petición, rol, `agente_esperado`, `referencia` y
+`fuentes_esperadas`. El juez (`src/evaluation/juez.py`, `JUEZ_MODEL`) es el único que ve la
+referencia; el grafo nunca la ve.
+
+| Script | Qué hace | Métricas |
+|---|---|---|
+| `scripts/evaluar.py --conjunto prueba` | Corre el grafo hasta el HITL y juzga | `agente_ok`, `recall_fuentes`, `cumple_reglas`, `juez_puntaje`, `juez_paso`, intentos, tokens, segundos |
+| `scripts/evaluar.py --calibrar` | Veredicto del Rubric Agent contra la decisión del docente en `approvals` (sin LLM; excluye los rechazos deterministas) | aciertos, falsos PASS, falsos FAIL |
+| `scripts/entrenar_reglas.py` | Oráculo sobre `entrenamiento` → reglas generales → manual consolidado | — |
+
+El manual se mide en `reservado`, que no se usa para diseñar nada, para detectar
+sobreajuste.
 
 ## 6. Definición de los agentes
 
@@ -217,7 +312,7 @@ pipeline de ingest).
 
 - **Rol**: crea exámenes bajo constraints (nº preguntas, dificultad, temas, duración).
 - **Tools**: `buscar_examenes_historicos`, `buscar_apuntes`, `buscar_rubricas`.
-- **Salida**: examen + solucionario + fuentes → validación Rubric → HITL docente.
+- **Salida**: examen + solucionario + fuentes → validación híbrida → Reflexion si se rechaza (§5.4) → HITL docente.
 
 ### 6.3 Rubric Agent
 
@@ -272,18 +367,26 @@ sequenceDiagram
     C->>API: POST /requests JWT
     API->>DB: insert request running
     API->>O: stream grafo
+    O->>O: router (reglas, LLM si es ambiguo)
+    O->>DB: criterios de la rúbrica (cache) + casos parecidos (Chroma)
     O->>E: generar examen
     E->>DB: buscar examenes apuntes rubricas
     E-->>O: borrador
-    O->>R: validar
+    O->>O: verificar_examen (constraints, fuentes, criterios)
+    O->>R: validar si las reglas pasan
     R->>DB: buscar_rubricas
     R-->>O: veredicto
+    opt rechazado y quedan intentos
+        O->>O: reflexionar → lección + modo
+        O->>E: reparar (borrador + motivos) o regenerar (lecciones)
+    end
+    O->>O: mejor_intento
     O-->>API: interrupt HITL
     API->>DB: waiting_approval + approvals
     C->>API: GET /requests/id
     C->>API: POST /requests/id/approve si
     API->>O: Command resume
-    API->>DB: completed + memoria
+    API->>DB: completed + memoria + caso en Chroma
     API-->>C: respuesta_final
 ```
 
@@ -295,13 +398,15 @@ sequenceDiagram
 | Auth | JWT (python-jose) + passlib/bcrypt | Roles docente/alumno |
 | Persistencia | MySQL (SQLAlchemy) | Usuarios, KB, requests, memoria |
 | Orquestación | LangGraph | Grafo, checkpoint, interrupt HITL |
-| Agentes | LangChain ReAct | Razonamiento + tools |
-| RAG | BM25 + embeddings (OpenAI, vLLM u Ollama) + RRF sobre MySQL | Filtra por `chunk_embeddings.model` |
+| Agentes | `langchain.agents.create_agent` + middleware `error_como_observacion` | ReAct; un fallo de tool vuelve como observación |
+| RAG | BM25 + Chroma HNSW (`VECTOR_BACKEND`, fallback coseno MySQL) + RRF | Embeddings OpenAI, vLLM u Ollama; colección por modelo |
+| Índice vectorial | ChromaDB embebido (`storage/chroma`) | Derivado de MySQL; también memoria de casos |
+| Evaluación | `eval/` + juez LLM (`JUEZ_MODEL`) + métricas deterministas | Medir y entrenar el manual de reglas |
 | LLM | Model registry (`LLM_PROFILE`) | OpenAI cloud, vLLM USFQ u Ollama local |
 | UI | Streamlit (`app_streamlit/`) | Cliente HTTP JWT, sin embeber el grafo |
 | Observabilidad | JSONL local + LangSmith opcional | Depuración y coste |
 | Validación | Pydantic | Schemas API y contratos entre agentes |
-| Pruebas | `scripts/run_test_pipeline.py` + pytest | Smoke y contratos |
+| Pruebas | pytest sin red (`tests/conftest.py`) + `scripts/run_test_pipeline.py` + `scripts/evaluar.py` | Unidad/grafo con fakes, smoke y calidad con LLM real |
 
 ### Model registry
 

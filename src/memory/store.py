@@ -1,4 +1,4 @@
-"""Memoria de largo plazo (directriz de aprendizaje §4.2).
+"""Memoria de largo plazo (directriz de aprendizaje §5.2).
 
 Tres espacios persistidos en JSON:
 - feedback_docente: material aprobado/corregido y observaciones.

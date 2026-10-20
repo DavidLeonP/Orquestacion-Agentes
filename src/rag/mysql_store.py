@@ -1,26 +1,26 @@
-"""Retriever híbrido sobre MySQL: BM25 + embeddings + RRF."""
+"""Retriever híbrido de la KB por usuario: BM25 + embeddings + RRF.
+
+El ranking semántico sale de Chroma (VECTOR_BACKEND=chroma, HNSW) o del coseno
+en Python sobre `chunk_embeddings` (VECTOR_BACKEND=mysql, legado).
+"""
 
 from __future__ import annotations
 
 import logging
-import re
 from functools import lru_cache
 
 import numpy as np
 from rank_bm25 import BM25Okapi
 from sqlalchemy.orm import Session, joinedload
 
+from src.config import VECTOR_BACKEND
 from src.db.models import Chunk
 from src.db.session import SessionLocal
 from src.llm import active_embedding_model, get_embeddings
+from src.rag import kb_vectores
+from src.rag.rrf import fusion_rrf, ranking_bm25, tokenizar
 
 logger = logging.getLogger("orquestacion.rag")
-
-RRF_K = 60
-
-
-def _tokenizar(texto: str) -> list[str]:
-    return re.findall(r"\w+", texto.lower())
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
@@ -37,84 +37,87 @@ class RetrieverHibridoMySQL:
         self.indice = indice
         self._own_session = db is None
         self.db = db or SessionLocal()
+        self.backend = VECTOR_BACKEND
         self.chunks: list[dict] = []
         self._embeddings: dict[str, list[float]] = {}
-        self._embedding_model = active_embedding_model()
-        self._cargar()
+        self._embedder = get_embeddings()
+        try:
+            self._cargar()
+        finally:
+            # La búsqueda no vuelve a tocar MySQL: se libera la conexión para que los
+            # retrievers en caché no retengan el pool ni mueran por inactividad.
+            self.close()
 
     def _cargar(self) -> None:
-        rows = (
-            self.db.query(Chunk)
-            .options(joinedload(Chunk.embedding))
-            .filter(Chunk.user_id == self.user_id, Chunk.indice == self.indice)
-            .order_by(Chunk.position)
-            .all()
+        query = self.db.query(Chunk).filter(
+            Chunk.user_id == self.user_id, Chunk.indice == self.indice
         )
-        self.chunks = []
-        self._embeddings = {}
-        for c in rows:
-            item = {
-                "id": c.chunk_uid,
-                "texto": c.texto,
-                "metadatos": c.metadatos or {},
-            }
-            self.chunks.append(item)
-            # Solo vectores del modelo activo (pueden coexistir otros en BD)
-            if (
-                c.embedding
-                and c.embedding.embedding
-                and c.embedding.model == self._embedding_model
-            ):
-                self._embeddings[c.chunk_uid] = c.embedding.embedding
+        if self.backend == "mysql":
+            query = query.options(joinedload(Chunk.embedding))
+        rows = query.order_by(Chunk.position).all()
+        self.chunks = [
+            {"id": c.chunk_uid, "texto": c.texto, "metadatos": c.metadatos or {}} for c in rows
+        ]
+        self.bm25 = BM25Okapi([tokenizar(c["texto"]) for c in self.chunks]) if self.chunks else None
 
+        if self.backend == "chroma":
+            try:
+                kb_vectores.sincronizar(self.db, self.user_id, self.indice, [c["id"] for c in self.chunks])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Chroma no disponible (%s); se usa coseno sobre MySQL", exc)
+                self.db.rollback()  # por si falló la query de sincronizar
+                self.backend = "mysql"
+                return self._cargar()
+            return
+
+        # Solo vectores del modelo activo (pueden coexistir otros en BD)
+        modelo = active_embedding_model()
+        self._embeddings = {
+            c.chunk_uid: c.embedding.embedding
+            for c in rows
+            if c.embedding and c.embedding.embedding and c.embedding.model == modelo
+        }
         if self.chunks and not self._embeddings:
             logger.warning(
                 "Sin embeddings del modelo '%s' para user=%s indice=%s; "
                 "solo BM25. Reprocesa la KB si quieres búsqueda semántica.",
-                self._embedding_model,
+                modelo,
                 self.user_id,
                 self.indice,
             )
-
-        self.bm25 = (
-            BM25Okapi([_tokenizar(c["texto"]) for c in self.chunks]) if self.chunks else None
-        )
-        self._embedder = get_embeddings()
 
     def close(self) -> None:
         if self._own_session:
             self.db.close()
 
+    def _ranking_semantico(self, consulta: str, n: int) -> list[str]:
+        if self.backend == "chroma":
+            try:
+                return kb_vectores.buscar(
+                    self.user_id, self.indice, self._embedder.embed_query(consulta), n
+                )
+            except Exception as exc:  # noqa: BLE001 - queda el ranking BM25
+                logger.warning("Chroma: búsqueda semántica fallida (%s); solo BM25", exc)
+                return []
+        if not self._embeddings:
+            return []
+        q_vec = np.array(self._embedder.embed_query(consulta), dtype=float)
+        sims = sorted(
+            ((cid, _cosine(q_vec, np.array(emb, dtype=float))) for cid, emb in self._embeddings.items()),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        return [cid for cid, _ in sims[:n]]
+
     def buscar(self, consulta: str, k: int = 4) -> list[dict]:
         if not self.chunks:
             return []
-
-        puntuaciones: dict[str, float] = {}
-
-        if self.bm25 is not None:
-            scores = self.bm25.get_scores(_tokenizar(consulta))
-            ranking = sorted(range(len(self.chunks)), key=lambda i: scores[i], reverse=True)[
-                : k * 2
-            ]
-            for pos, idx in enumerate(ranking):
-                cid = self.chunks[idx]["id"]
-                puntuaciones[cid] = puntuaciones.get(cid, 0) + 1 / (RRF_K + pos + 1)
-
-        if self._embeddings:
-            q_vec = np.array(self._embedder.embed_query(consulta), dtype=float)
-            sims = []
-            for c in self.chunks:
-                emb = self._embeddings.get(c["id"])
-                if emb is None:
-                    continue
-                sims.append((c["id"], _cosine(q_vec, np.array(emb, dtype=float))))
-            sims.sort(key=lambda x: x[1], reverse=True)
-            for pos, (cid, _) in enumerate(sims[: k * 2]):
-                puntuaciones[cid] = puntuaciones.get(cid, 0) + 1 / (RRF_K + pos + 1)
-
-        mejores = sorted(puntuaciones, key=puntuaciones.get, reverse=True)[:k]
+        rankings = [
+            ranking_bm25(self.bm25, [c["id"] for c in self.chunks], consulta, k * 2),
+            self._ranking_semantico(consulta, k * 2),
+        ]
         por_id = {c["id"]: c for c in self.chunks}
-        return [por_id[i] for i in mejores if i in por_id]
+        return [por_id[i] for i in fusion_rrf(rankings, k) if i in por_id]
 
 
 @lru_cache(maxsize=64)

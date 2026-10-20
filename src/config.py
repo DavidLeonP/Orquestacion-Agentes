@@ -47,6 +47,21 @@ INDICES = {
 
 MAX_ITERACIONES_REACT = 10
 
+# Índice vectorial: chroma (HNSW embebido en storage/chroma) | mysql (coseno en Python).
+# MySQL es siempre la fuente de verdad; Chroma se resincroniza solo desde chunk_embeddings.
+VECTOR_BACKEND = os.getenv("VECTOR_BACKEND", "chroma").lower()
+
+# Modelos de evaluación (None = el del perfil activo).
+# EVAL_MODEL: Rubric Agent y Reflector dentro del grafo. JUEZ_MODEL: juez offline.
+EVAL_MODEL = os.getenv("EVAL_MODEL") or None
+JUEZ_MODEL = os.getenv("JUEZ_MODEL") or None
+
+# Memoria de casos: similitud coseno mínima para usar un examen aprobado como pista
+UMBRAL_MEMORIA_CASOS = float(os.getenv("UMBRAL_MEMORIA_CASOS", "0.75"))
+# Manual de reglas aprendidas en entrenamiento (scripts/entrenar_reglas.py)
+RUTA_REGLAS = DIR_STORAGE / "reglas_aprendidas.json"
+DIR_EVAL = RAIZ / "eval"
+
 # --- SQL Agent (consultas en lenguaje natural sobre la BD de negocio) ---
 # BD de negocio que el SQL Agent consulta (distinta de DATABASE_URL, que es
 # metadatos de la app). Recomendado: usuario MySQL con permisos solo SELECT.
