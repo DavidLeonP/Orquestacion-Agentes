@@ -15,13 +15,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 CHAT_BASE_URL = os.getenv(
-    "LLM_BASE_URL", "http://172.28.230.10:12555/v1"
+    "LLM_BASE_URL", "http://172.28.230.10:11434/v1"
 ).rstrip("/")
 EMBEDDING_BASE_URL = os.getenv(
-    "EMBEDDING_BASE_URL", "http://172.28.230.10:12556/v1"
+    "EMBEDDING_BASE_URL", "http://172.28.230.10:11434/v1"
 ).rstrip("/")
-CHAT_MODEL = os.getenv("LLM_MODEL", "zai-org/GLM-5.3-Flash")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+CHAT_MODEL = os.getenv("LLM_MODEL", "qwen2.5:latest")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "bge-m3:latest")
 API_KEY = os.getenv("OPENAI_COMPAT_API_KEY", "local")
 
 
@@ -108,7 +108,7 @@ def main() -> int:
             except (httpx.HTTPError, KeyError, IndexError, RuntimeError) as exc:
                 print(f"ERROR embeddings: {exc}", file=sys.stderr)
                 print(
-                    "El servicio de embeddings (:12556) no responde. "
+                    "El servicio de embeddings no responde. "
                     "Sin él no se puede indexar RAG con bge-m3.",
                     file=sys.stderr,
                 )

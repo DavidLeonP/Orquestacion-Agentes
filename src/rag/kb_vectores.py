@@ -22,10 +22,12 @@ def _kb():
     return coleccion_vectores("kb")
 
 
-def upsert(chunks: list[Chunk], vectores: list[list[float]]) -> None:
+def upsert(chunks: list[Chunk], vectores: list[list[float]]) -> str:
+    """Inserta o actualiza vectores. Devuelve el nombre de la colección."""
+    col = _kb()
     if not chunks:
-        return
-    _kb().upsert(
+        return col.name
+    col.upsert(
         ids=[id_vector(c.user_id, c.chunk_uid) for c in chunks],
         embeddings=vectores,
         metadatas=[
@@ -34,6 +36,7 @@ def upsert(chunks: list[Chunk], vectores: list[list[float]]) -> None:
             for c in chunks
         ],
     )
+    return col.name
 
 
 def borrar_documento(document_id: int) -> None:
@@ -75,6 +78,47 @@ def sincronizar(
     logger.info("Chroma: %d vectores sincronizados desde MySQL (user=%s indice=%s)",
                 len(filas), user_id, indice)
     return len(filas)
+
+
+def estado(user_id: int, indice: str | None = None) -> dict:
+    """Resumen de la colección activa: cuántos vectores hay y de qué documento."""
+    col = _kb()
+    modelo = active_embedding_model()
+    try:
+        total = col.count()
+        got = col.get(where=filtro(user_id=user_id), include=["metadatas"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Chroma: no se pudo leer el estado (user=%s): %s", user_id, exc)
+        return {
+            "ok": False,
+            "coleccion": col.name,
+            "modelo": modelo,
+            "espacio": "cosine",
+            "error": str(exc)[:500],
+        }
+    metas = got.get("metadatas") or []
+    ids = got.get("ids") or []
+    if indice:
+        metas_indice = [m for m in metas if (m or {}).get("indice") == indice]
+    else:
+        metas_indice = list(metas)
+    por_doc: dict[int, int] = {}
+    for meta in metas_indice:
+        did = int((meta or {}).get("document_id") or 0)
+        por_doc[did] = por_doc.get(did, 0) + 1
+    return {
+        "ok": True,
+        "coleccion": col.name,
+        "modelo": modelo,
+        "espacio": "cosine",
+        "total_coleccion": total,
+        "vectores_usuario": len(ids),
+        "vectores_indice": len(metas_indice),
+        "indice": indice,
+        "por_documento": [
+            {"document_id": did, "vectores": n} for did, n in sorted(por_doc.items())
+        ],
+    }
 
 
 def buscar(user_id: int, indice: str, vector: list[float], k: int) -> list[str]:

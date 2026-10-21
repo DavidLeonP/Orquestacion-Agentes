@@ -87,7 +87,18 @@ def test_upsert_es_idempotente_y_actualiza(chroma_tmp):
 
 
 def test_upsert_vacio_no_falla(chroma_tmp):
-    kb_vectores.upsert([], [])
+    assert kb_vectores.upsert([], []) == "kb_fake-embed_v1"
+
+
+def test_estado_cuenta_por_usuario_e_indice(chroma_tmp):
+    _cargar_kb()
+    info = kb_vectores.estado(1, "apuntes")
+    assert info["ok"] is True
+    assert info["coleccion"] == "kb_fake-embed_v1"
+    assert info["total_coleccion"] == 5
+    assert info["vectores_usuario"] == 4
+    assert info["vectores_indice"] == 3
+    assert {fila["document_id"]: fila["vectores"] for fila in info["por_documento"]} == {10: 2, 11: 1}
 
 
 def test_borrar_documento(chroma_tmp):

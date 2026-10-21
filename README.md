@@ -126,7 +126,7 @@ Elige proveedor según recursos con `LLM_PROFILE` en `.env`:
 | Perfil | Chat | Embeddings |
 |--------|------|------------|
 | `cloud_openai` | gpt-4o-mini | text-embedding-3-small |
-| `vllm_usfq` | DeepSeek V4 Flash (`:12555`, VPN) | BGE-M3 (`:12556`, VPN) |
+| `vllm_usfq` | `qwen2.5:latest` (Ollama `:11434`, VPN) | `bge-m3:latest` (`:11434`, VPN) |
 | `local_barato` | qwen2.5:3b (Ollama) | nomic-embed-text |
 | `local_calidad` | qwen2.5:7b (Ollama) | nomic-embed-text |
 
@@ -136,8 +136,10 @@ LLM_PROFILE=cloud_openai
 
 # Switch: vLLM USFQ (requiere VPN; solo HTTP)
 LLM_PROFILE=vllm_usfq
-LLM_BASE_URL=http://172.28.230.10:12555/v1
-EMBEDDING_BASE_URL=http://172.28.230.10:12556/v1
+LLM_MODEL=qwen2.5:latest
+EMBEDDING_MODEL=bge-m3:latest
+LLM_BASE_URL=http://172.28.230.10:11434/v1
+EMBEDDING_BASE_URL=http://172.28.230.10:11434/v1
 OPENAI_COMPAT_API_KEY=local
 python scripts/smoke_vllm_usfq.py
 

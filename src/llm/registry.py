@@ -26,11 +26,11 @@ PROFILES: dict[str, dict[str, str]] = {
     },
     "vllm_usfq": {
         "llm_provider": "openai_compatible",
-        "llm_model": "zai-org/GLM-5.3-Flash",
-        "llm_base_url": "http://172.28.230.10:12555/v1",
+        "llm_model": "qwen2.5:latest",
+        "llm_base_url": "http://172.28.230.10:11434/v1",
         "embedding_provider": "openai_compatible",
-        "embedding_model": "BAAI/bge-m3",
-        "embedding_base_url": "http://172.28.230.10:12556/v1",
+        "embedding_model": "bge-m3:latest",
+        "embedding_base_url": "http://172.28.230.10:11434/v1",
     },
     "local_barato": {
         "llm_provider": "ollama",

@@ -11,10 +11,12 @@ from src.api.schemas import (
     DocumentOut,
     DocumentUpdateIn,
     IngestOut,
+    JobsIn,
 )
 from src.config import INDICES_NOMBRES
 from src.db.models import Chunk, Document, User
 from src.db.session import get_db
+from src.ingestion.jobs import encolar, esta_en_cola, registrar_paso, ruta_permitida
 from src.ingestion.mysql_pipeline import ingest_pendientes, reprocess_documento
 from src.rag import kb_vectores
 from src.rag.mysql_store import invalidar_cache_retriever
@@ -51,6 +53,43 @@ def crear_documento(
     db.commit()
     db.refresh(doc)
     return doc
+
+
+@router.post("/{indice}/jobs", response_model=list[DocumentOut], status_code=202)
+def crear_trabajos(
+    indice: str,
+    body: JobsIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Registra archivos ya guardados en la bandeja y los indexa en segundo plano."""
+    _validar_indice(indice)
+    rutas = []
+    for item in body.items:
+        try:
+            rutas.append((item, ruta_permitida(user.id, item.path)))
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    creados = []
+    for item, ruta in rutas:
+        doc = Document(
+            user_id=user.id,
+            indice=indice,
+            filename=(item.filename or ruta.name)[:512],
+            content_text="",
+            content_type="application/octet-stream",
+            status="extracting",
+            metadatos={"fuente": item.filename or ruta.name, "storage_path": str(ruta)},
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        registrar_paso(db, doc, "cola", f"en cola · {ruta.name}")
+        encolar(doc.id, reextraer=True)
+        db.refresh(doc)
+        creados.append(doc)
+    return creados
 
 
 @router.get("/documents", response_model=list[DocumentOut])
@@ -126,6 +165,42 @@ def borrar_documento(
     db.commit()
     kb_vectores.borrar_documento(document_id)
     invalidar_cache_retriever(user.id)
+
+
+@router.get("/chroma")
+def estado_chroma(
+    indice: str | None = None,
+    user: User = Depends(get_current_user),
+):
+    """Colección activa y vectores de este usuario. No recalcula embeddings."""
+    if indice:
+        _validar_indice(indice)
+    return kb_vectores.estado(user.id, indice)
+
+
+@router.post("/documents/{document_id}/process", response_model=DocumentOut)
+def procesar_en_cola(
+    document_id: int,
+    reextraer: bool = False,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Encola extracción (si falta el texto) e indexación sin bloquear la petición."""
+    doc = (
+        db.query(Document)
+        .filter(Document.id == document_id, Document.user_id == user.id)
+        .first()
+    )
+    if not doc:
+        raise HTTPException(404, detail="Documento no encontrado")
+    if esta_en_cola(doc.id):
+        return doc
+    doc.status = "extracting" if reextraer or not (doc.content_text or "").strip() else "indexing"
+    db.commit()
+    registrar_paso(db, doc, "cola", "en cola de indexación")
+    encolar(doc.id, reextraer=reextraer)
+    db.refresh(doc)
+    return doc
 
 
 @router.post("/ingest", response_model=IngestOut)

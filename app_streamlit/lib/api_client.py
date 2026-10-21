@@ -111,6 +111,20 @@ class ApiClient:
     def delete_document(self, doc_id: int) -> None:
         self._request("DELETE", f"/knowledge/documents/{doc_id}")
 
+    def start_jobs(self, indice: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self._request("POST", f"/knowledge/{indice}/jobs", json={"items": items})
+
+    def process_document(self, doc_id: int, *, reextraer: bool = False) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/knowledge/documents/{doc_id}/process",
+            params={"reextraer": reextraer},
+        )
+
+    def chroma_status(self, indice: str | None = None) -> dict[str, Any]:
+        params = {"indice": indice} if indice else None
+        return self._request("GET", "/knowledge/chroma", params=params)
+
     def ingest(self) -> dict[str, Any]:
         return self._request("POST", "/knowledge/ingest")
 

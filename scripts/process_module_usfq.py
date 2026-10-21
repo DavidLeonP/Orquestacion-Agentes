@@ -31,7 +31,7 @@ def _wait_embeddings(timeout_sec: float = 30.0) -> None:
     import httpx
     import os
 
-    base = (os.getenv("EMBEDDING_BASE_URL") or "http://172.28.230.10:12556/v1").rstrip(
+    base = (os.getenv("EMBEDDING_BASE_URL") or "http://172.28.230.10:11434/v1").rstrip(
         "/"
     )
     key = os.getenv("OPENAI_COMPAT_API_KEY", "local")
@@ -52,7 +52,7 @@ def _wait_embeddings(timeout_sec: float = 30.0) -> None:
             time.sleep(2)
     raise RuntimeError(
         f"Servicio de embeddings no disponible en {base} ({last_err}). "
-        "Confirma que :12556 esté arriba o pasa --embed-url."
+        "Confirma que el endpoint de embeddings esté arriba o pasa --embed-url."
     )
 
 

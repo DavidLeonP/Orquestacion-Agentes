@@ -58,6 +58,8 @@ STATUS_EMOJI: dict[str, str] = {
 
 DOC_STATUS_LABELS: dict[str, str] = {
     "pending": "Pendiente de indexar",
+    "extracting": "Extrayendo texto",
+    "indexing": "Indexando",
     "ready": "Listo",
     "indexed": "Indexado",
     "error": "Error",

@@ -246,14 +246,26 @@ def _transcribir_una(audio_path: Path, *, language: str = "es") -> str:
     return _transcribir_openai(audio_path, language=language)
 
 
-def transcribir_audio(audio_path: Path, *, language: str = "es") -> str:
+def transcribir_audio(
+    audio_path: Path,
+    *,
+    language: str = "es",
+    on_progress=None,
+) -> str:
     """Transcribe un WAV; parte en segmentos si supera el límite de upload."""
     if audio_path.stat().st_size <= MAX_WHISPER_UPLOAD_BYTES:
+        if on_progress:
+            on_progress("asr", "transcribiendo audio")
         return _transcribir_una(audio_path, language=language)
 
     with tempfile.TemporaryDirectory(prefix="oa-asr-parts-") as tmp:
         parts = _partir_wav_por_duracion(audio_path, Path(tmp))
-        textos = [_transcribir_una(p, language=language) for p in parts]
+        textos = []
+        total = len(parts)
+        for i, parte in enumerate(parts, start=1):
+            if on_progress:
+                on_progress("asr", f"segmento {i}/{total}")
+            textos.append(_transcribir_una(parte, language=language))
     return "\n\n".join(t.strip() for t in textos if t and t.strip())
 
 
@@ -264,6 +276,7 @@ def extraer_video(
     language: str = "es",
     audio_tmp: Path | None = None,
     max_seconds: float | None = None,
+    on_progress=None,
 ) -> ExtractionResult:
     """Transcribe un vídeo a texto, o solo estima si dry_run=True.
 
@@ -301,10 +314,15 @@ def extraer_video(
     with tempfile.TemporaryDirectory(prefix="oa-asr-") as tmp:
         wav = Path(audio_tmp) if audio_tmp else Path(tmp) / f"{ruta.stem}.wav"
         if audio_tmp is None:
+            if on_progress:
+                on_progress("audio", "extrayendo audio con ffmpeg")
             _extraer_audio_wav(ruta, wav, max_seconds=max_seconds)
+            if on_progress:
+                mb = wav.stat().st_size / (1024 * 1024)
+                on_progress("audio", f"audio listo ({mb:.1f} MB)")
         elif not wav.exists():
             raise FileNotFoundError(f"Audio preparado no encontrado: {wav}")
-        texto = transcribir_audio(wav, language=language)
+        texto = transcribir_audio(wav, language=language, on_progress=on_progress)
 
     metadatos["chars_transcritos"] = len(texto)
     return ExtractionResult(

@@ -61,6 +61,15 @@ class DocumentDetailOut(DocumentOut):
     content_text: str
 
 
+class JobFileIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=512)
+    path: str = Field(min_length=1)
+
+
+class JobsIn(BaseModel):
+    items: list[JobFileIn] = Field(min_length=1, max_length=20)
+
+
 class IngestOut(BaseModel):
     procesados: int
     errores: int

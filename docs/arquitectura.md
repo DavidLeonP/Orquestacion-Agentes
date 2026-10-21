@@ -415,7 +415,7 @@ sequenceDiagram
 | Perfil | Chat | Embeddings |
 |---|---|---|
 | `cloud_openai` (default) | `gpt-4o-mini` | `text-embedding-3-small` |
-| `vllm_usfq` | `zai-org/GLM-5.3-Flash` (`:12555`) | `BAAI/bge-m3` (`:12556`) |
+| `vllm_usfq` | `qwen2.5:latest` (Ollama `:11434`) | `bge-m3:latest` (`:11434`) |
 | `local_barato` | Ollama `qwen2.5:3b` | Ollama `nomic-embed-text` |
 | `local_calidad` | Ollama `qwen2.5:7b` | Ollama `nomic-embed-text` |
 

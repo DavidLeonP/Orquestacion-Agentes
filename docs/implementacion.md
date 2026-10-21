@@ -322,10 +322,12 @@ Pydantic siguen consumiendo `get_chat_model()` / `get_embeddings()`.
 # OpenAI pagado
 LLM_PROFILE=cloud_openai
 
-# vLLM USFQ (requiere VPN; solo HTTP)
+# USFQ (Ollama en la H200; requiere VPN; solo HTTP)
 LLM_PROFILE=vllm_usfq
-LLM_BASE_URL=http://172.28.230.10:12555/v1
-EMBEDDING_BASE_URL=http://172.28.230.10:12556/v1
+LLM_MODEL=qwen2.5:latest
+EMBEDDING_MODEL=bge-m3:latest
+LLM_BASE_URL=http://172.28.230.10:11434/v1
+EMBEDDING_BASE_URL=http://172.28.230.10:11434/v1
 OPENAI_COMPAT_API_KEY=local
 ```
 

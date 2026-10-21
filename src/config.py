@@ -14,6 +14,7 @@ DIR_CHROMA = DIR_STORAGE / "chroma"
 DIR_MEMORIA = DIR_STORAGE / "memoria"
 DIR_LOGS = DIR_STORAGE / "logs"
 DIR_EXTRACTED = DIR_STORAGE / "extracted"
+DIR_INBOX = DIR_STORAGE / "inbox"
 DIR_METRICS = DIR_STORAGE / "metrics"
 
 # ASR (vídeo → texto). openai | openai_compatible (infra universidad)

@@ -55,11 +55,11 @@ def test_perfil_local_calidad():
 def test_perfil_vllm_usfq_usa_urls_separadas():
     sel = resolve_selection(profile="vllm_usfq")
     assert sel.llm_provider == "openai_compatible"
-    assert sel.llm_model == "zai-org/GLM-5.3-Flash"
-    assert sel.llm_base_url == "http://172.28.230.10:12555/v1"
+    assert sel.llm_model == "qwen2.5:latest"
+    assert sel.llm_base_url == "http://172.28.230.10:11434/v1"
     assert sel.embedding_provider == "openai_compatible"
-    assert sel.embedding_model == "BAAI/bge-m3"
-    assert sel.embedding_base_url == "http://172.28.230.10:12556/v1"
+    assert sel.embedding_model == "bge-m3:latest"
+    assert sel.embedding_base_url == "http://172.28.230.10:11434/v1"
 
 
 def test_vllm_admite_overrides_de_urls_y_key(monkeypatch):
