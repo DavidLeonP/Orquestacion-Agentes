@@ -158,56 +158,77 @@ def _ejecutar_request_impl(request_id: int) -> None:
         }
 
         estado: dict = {}
-        for chunk in app.stream(entrada, config=config, stream_mode="updates"):
-            db, req = _refresh_db(db, request_id)
-            if "__interrupt__" in chunk:
-                interrupt_data = chunk["__interrupt__"][0].value
-                req.status = "waiting_approval"
-                req.agente_destino = estado.get("agente_destino") or req.agente_destino
-                if req.approval is None:
-                    db.add(
-                        Approval(
-                            request_id=req.id,
-                            borrador=_borrador_hitl(interrupt_data),
-                            veredicto=_texto_veredicto_hitl(interrupt_data),
-                            decision="pending",
+        # Cerrar el generador de forma explícita evita el GeneratorExit ruidoso
+        # que LangGraph/LangSmith registran al hacer return dentro del for.
+        stream = app.stream(entrada, config=config, stream_mode="updates")
+        interrumpido = False
+        try:
+            for chunk in stream:
+                db, req = _refresh_db(db, request_id)
+                if "__interrupt__" in chunk:
+                    interrupt_data = chunk["__interrupt__"][0].value
+                    req.status = "waiting_approval"
+                    req.agente_destino = estado.get("agente_destino") or req.agente_destino
+                    if req.approval is None:
+                        db.add(
+                            Approval(
+                                request_id=req.id,
+                                borrador=_borrador_hitl(interrupt_data),
+                                veredicto=_texto_veredicto_hitl(interrupt_data),
+                                decision="pending",
+                            )
                         )
-                    )
-                else:
-                    req.approval.borrador = _borrador_hitl(interrupt_data)
-                    req.approval.veredicto = _texto_veredicto_hitl(interrupt_data)
-                    req.approval.decision = "pending"
-                db.commit()
-                db = _add_event(
-                    db,
-                    req.id,
-                    "waiting_approval",
-                    {
-                        "mensaje": interrupt_data.get("mensaje"),
-                        "veredicto": interrupt_data.get("veredicto"),
-                    },
-                )
-                return
-
-            for nodo, actualizacion in chunk.items():
-                if nodo.startswith("__") or not isinstance(actualizacion, dict):
-                    continue
-                estado.update(actualizacion)
-                if "agente_destino" in actualizacion:
-                    req.agente_destino = actualizacion["agente_destino"]
+                    else:
+                        req.approval.borrador = _borrador_hitl(interrupt_data)
+                        req.approval.veredicto = _texto_veredicto_hitl(interrupt_data)
+                        req.approval.decision = "pending"
                     db.commit()
-                db = _add_event(
-                    db,
-                    req.id,
-                    "nodo_grafo",
-                    {"nodo": nodo, "claves": list(actualizacion.keys())},
-                )
+                    db = _add_event(
+                        db,
+                        req.id,
+                        "waiting_approval",
+                        {
+                            "mensaje": interrupt_data.get("mensaje"),
+                            "veredicto": interrupt_data.get("veredicto"),
+                        },
+                    )
+                    interrumpido = True
+                    break
+
+                for nodo, actualizacion in chunk.items():
+                    if nodo.startswith("__") or not isinstance(actualizacion, dict):
+                        continue
+                    estado.update(actualizacion)
+                    if "agente_destino" in actualizacion:
+                        req.agente_destino = actualizacion["agente_destino"]
+                        db.commit()
+                    db = _add_event(
+                        db,
+                        req.id,
+                        "nodo_grafo",
+                        {"nodo": nodo, "claves": list(actualizacion.keys())},
+                    )
+        except GeneratorExit:
+            # Cierre cooperativo del stream (HITL / cancelación); no es fallo.
+            return
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        if interrumpido:
+            return
 
         db, req = _refresh_db(db, request_id)
         req.respuesta_final = estado.get("respuesta_final")
         req.status = "completed"
         db.commit()
         db = _add_event(db, req.id, "completed", {})
+    except GeneratorExit:
+        return
     except Exception as exc:  # noqa: BLE001
         _mark_failed(request_id, str(exc))
     finally:
@@ -242,12 +263,23 @@ def aprobar_request(request_id: int, user_id: int, decision: str) -> Request:
         app = _app()
         config = {"configurable": {"thread_id": req.thread_id}}
         estado: dict = {}
-        for chunk in app.stream(Command(resume=decision), config=config, stream_mode="updates"):
-            for nodo, actualizacion in chunk.items():
-                if nodo.startswith("__") or not isinstance(actualizacion, dict):
-                    continue
-                estado.update(actualizacion)
-                _add_event(db, req.id, "nodo_grafo", {"nodo": nodo})
+        stream = app.stream(Command(resume=decision), config=config, stream_mode="updates")
+        try:
+            for chunk in stream:
+                for nodo, actualizacion in chunk.items():
+                    if nodo.startswith("__") or not isinstance(actualizacion, dict):
+                        continue
+                    estado.update(actualizacion)
+                    _add_event(db, req.id, "nodo_grafo", {"nodo": nodo})
+        except GeneratorExit:
+            pass
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001
+                    pass
 
         aprobado = decision.strip().lower() in {"si", "sí", "s", "yes", "y"}
         if req.approval:

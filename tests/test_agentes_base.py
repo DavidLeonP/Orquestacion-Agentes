@@ -98,8 +98,8 @@ def test_limite_de_iteraciones_devuelve_mensaje_controlado(monkeypatch, eventos)
     assert respuesta.startswith(f"No pude completar la tarea en {MAX_ITERACIONES_REACT} iteraciones")
     (fin,) = [k for t, k in eventos if t == "agente_fin"]
     assert fin["limite_iteraciones"] is True
-    # recursion_limit = 2 * MAX + 5 -> el modelo se llama unas MAX veces, no sin fin
-    assert MAX_ITERACIONES_REACT <= len(llm.recibidos) <= MAX_ITERACIONES_REACT + 3
+    # Con Guardrails el techo de llamadas al modelo ronda MAX (± holgura de nodos).
+    assert MAX_ITERACIONES_REACT - 2 <= len(llm.recibidos) <= MAX_ITERACIONES_REACT + 3
 
 
 def test_tokens_se_suman_entre_iteraciones(monkeypatch, eventos):
@@ -132,10 +132,7 @@ def test_menos_de_max_iteraciones_responde(monkeypatch, eventos):
     assert _correr_n_tools(monkeypatch, MAX_ITERACIONES_REACT - 1) == "fin"
 
 
-# BUG (base.py, recursion_limit = 2*MAX+1): medido con create_agent + middleware,
-# MAX iteraciones con tool + la respuesta final necesitan 2*MAX+3 super-steps
-# (con MAX=10: 9 tools pasan, 10 ya dan el texto controlado). Con el +5 anterior
-# cabían 11. Corrección sugerida: recursion_limit = 2 * MAX_ITERACIONES_REACT + 3.
+# Con Guardrails (before/after agent + PII), el límite útil es 4*MAX+5.
 def test_exactamente_max_iteraciones_responde(monkeypatch, eventos):
     assert _correr_n_tools(monkeypatch, MAX_ITERACIONES_REACT) == "fin"
 

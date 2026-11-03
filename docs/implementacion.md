@@ -117,11 +117,13 @@ Si cambias de modelo de embedding (`LLM_PROFILE` / overrides), **reprocesa** la 
 
 ## 4. Orquestación y agentes
 
-Grafo en `src/orchestrator/graph.py`:
+Grafo en `src/orchestrator/graph.py` (vista de arquitectura C4 en [c4/](c4/);
+secuencias HTTP en [diagramas-secuencia.md](diagramas-secuencia.md)):
 
 ```mermaid
 flowchart TD
     Start --> Router
+    Router -->|cobertura_KB_baja| FueraContexto
     Router -->|curriculum| Curriculum
     Router -->|exam_generator| ExamGen
     Router -->|rubric| Rubric
@@ -133,24 +135,62 @@ flowchart TD
     Curriculum --> Finalizar
     Rubric --> Finalizar
     Tutor --> Finalizar
+    FueraContexto --> End
     AprobacionDocente --> End
     Finalizar --> End
 ```
 
+### 4.1 Guardrails (anclaje a la KB de sesión)
+
+Implementación según [LangChain Guardrails](https://docs.langchain.com/oss/python/langchain/guardrails):
+
+| Capa | Dónde | Qué hace |
+|---|---|---|
+| Cobertura documental | `src/rag/cobertura.py` + router | `evaluar_cobertura`: coseno real (Chroma/MySQL) + solape léxico; si falla → nodo `fuera_contexto` |
+| Middleware before/after | `src/agents/guardrails.py` | `GroundingGuardrailMiddleware` + `PIIMiddleware(email)` en cada `create_agent` |
+| Constraints ancladas | router → Exam Generator | Prompt sin defaults inventados (`6 preguntas` / temas ajenos); metadatos de KB pisan alucinaciones |
+| Tools / errores | `error_como_observacion` | Un fallo de tool vuelve como observación ReAct |
+
+Umbrales (`src/config.py`): `UMBRAL_COBERTURA_KB` (0,38), `UMBRAL_COBERTURA_LEX` (0,20),
+`UMBRAL_COBERTURA_SEM_FUERTE` (0,55). El top-1 HNSW solo (~0,3) no abre la puerta.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Cliente
+    participant API as FastAPI
+    participant R as router
+    participant Cov as evaluar_cobertura
+    participant KB as Chroma_MySQL
+    participant Ag as Agente_ReAct
+    participant MW as GuardrailMiddleware
+
+    C->>API: POST /requests peticion JWT
+    API->>R: stream grafo
+    R->>Cov: consulta + indices del agente
+    Cov->>KB: coseno + lex overlap
+    alt cobertura insuficiente
+        R-->>API: agente_destino fuera_contexto
+        API-->>C: completed sin inventar contenido
+    else cobertura OK
+        R->>Ag: exam_generator / tutor / ...
+        Ag->>MW: before_agent (rechequeo KB)
+        MW->>Ag: tools RAG + after_agent (citas)
+        Ag-->>API: borrador grounded
+    end
+```
+
 Comportamiento relevante:
 
-- **Alumno** → siempre Tutor (salvaguarda, sin LLM en el router).
+- **Alumno** → Tutor (salvo Guardrail de cobertura → `fuera_contexto`).
 - **Docente** → reglas deterministas (`routing.py`) y, si son ambiguas, `DecisionRouter` (LLM).
-- **Examen** → Exam Generator → validación híbrida (constraints, fuentes y criterios de la
-  rúbrica en Python; después Rubric Agent) → Reflexion (`reparar` o `regenerar`) hasta
-  `MAX_INTENTOS` → `interrupt` HITL con el mejor intento. Detalle en
-  [arquitectura.md](arquitectura.md) §5.4.
+- **Examen** → Exam Generator → validación híbrida → Reflexion hasta `MAX_INTENTOS` → HITL.
+  Detalle en [arquitectura.md](arquitectura.md) §5.4.
 - Contratos: `ExamenGenerado`, `VeredictoValidacion`, `PayloadAprobacion`, `Reflexion`,
   `CriteriosRubrica` en `src/agents/schemas.py`.
-- **Agentes**: `langchain.agents.create_agent` con middleware `error_como_observacion`
-  (un fallo de una tool vuelve al agente como observación). **Límite**:
-  `MAX_ITERACIONES_REACT` en `src/config.py`.
-- Chat/embeddings: `src/llm/registry.py` (`get_chat_model`, `get_embeddings`).
+- **Agentes**: `create_agent` + Guardrails + `error_como_observacion`. Límite:
+  `MAX_ITERACIONES_REACT` (`recursion_limit = 4*MAX+8` por overhead de middleware).
+- Chat/embeddings: `src/llm/registry.py`.
 
 ## 5. SQL Agent (consultas de negocio en lenguaje natural)
 
@@ -191,8 +231,21 @@ Salvaguardas, ninguna depende de que el prompt se cumpla (defensa en profundidad
    una consulta SQL ejecutada con éxito. Se agregó tras probar el consumo real desde la UI
    (ver §10): `gpt-4o-mini` a veces respondía con un dato inventado en el primer turno.
 
-`AGENT_DB_URI` (BD de negocio, distinta de `DATABASE_URL`) y `MAX_SQL_AGENT_ITERACIONES`
-en `.env` (ver §8). Detalle de diseño: [arquitectura.md](arquitectura.md) §6.5.
+`AGENT_DB_URI` (BD de negocio, distinta de `DATABASE_URL`), `SQL_AGENT_KG_PATH` (grafo de
+conocimiento del esquema anti-alucinación) y `MAX_SQL_AGENT_ITERACIONES` en `.env` (ver §8).
+
+**BD sintética universitaria** (500 estudiantes, 6 periodos, 3 paralelos):
+
+```bash
+python scripts/generar_sintetica_academica.py
+python scripts/migrar_sintetica_academica.py    # → data/negocio_academico.db
+python scripts/run_sql_agent_pipeline.py --write-doc
+```
+
+Artefactos: [data/sintetica_academica/](../data/sintetica_academica/) (`schema.md`,
+`knowledge_graph.json`, DDL SQLite/MySQL). El grafo se inyecta en
+`src/sql_agent/knowledge_graph.py` → system prompt de `query_gen`.
+Detalle de diseño: [arquitectura.md](arquitectura.md) §6.5.
 
 ## 6. API JWT (`src.api.main:app`)
 
@@ -285,7 +338,8 @@ Ver `.env.example`. Claves:
 | Variable | Uso |
 |---|---|
 | `DATABASE_URL` | MySQL de metadatos de la app (SQLAlchemy) |
-| `AGENT_DB_URI` | BD de negocio que consulta el SQL Agent (usuario solo-lectura recomendado) |
+| `AGENT_DB_URI` | BD de negocio del SQL Agent (p. ej. `sqlite:////app/data/negocio_academico.db`) |
+| `SQL_AGENT_KG_PATH` | Grafo de conocimiento del esquema (`data/sintetica_academica/knowledge_graph.json`) |
 | `MAX_SQL_AGENT_ITERACIONES` | Límite del loop de autocorrección del SQL Agent (default 10) |
 | `JWT_SECRET`, `JWT_EXPIRE_MINUTES` | Auth |
 | `CORS_ORIGINS` | CORS API |

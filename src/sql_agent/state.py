@@ -1,13 +1,13 @@
 """Estado del grafo LangGraph del SQL Agent."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 
-class State(TypedDict):
+class State(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     # Cuenta los pasos del loop query_gen -> correct_query -> execute_query.
     # should_continue() lo usa para cortar con una respuesta controlada al
@@ -20,3 +20,16 @@ class State(TypedDict):
     # consultado la BD (visto en producción con gpt-4o-mini pese a la regla
     # explícita del prompt de no inventar datos).
     queries_ok: int
+    # Pregunta original del docente (para validación / memoria).
+    peticion: str
+    # Lecciones de Reflexion en esta petición.
+    lecciones: list[str]
+    # Aclaraciones recuperadas de Chroma (+ la de esta sesión).
+    clarificaciones: list[str]
+    # Ciclos validar → reflexionar.
+    intentos_validacion: int
+    # Último veredicto tipado (dict).
+    veredicto: dict[str, Any]
+    # Borrador / SQL bajo revisión.
+    borrador_final: str
+    sql_final: str

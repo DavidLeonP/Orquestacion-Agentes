@@ -1,0 +1,512 @@
+% Opciones para paquetes cargados en otros lugares
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[journal]{IEEEtran}
+\usepackage[english,spanish,es-noshorthands,es-tabla]{babel}
+\usepackage{amsmath,amssymb, graphicx}
+\usepackage{lmodern}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math}
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+
+\usepackage{ragged2e} % Para el entorno justify
+\usepackage{booktabs}
+
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{3} % remove section numbering
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same} % disable monospaced font for URLs
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancyhead[R]{\scriptsize\thepage}
+
+\newenvironment{customfontsize}{
+    \fontsize{12}{14}\selectfont
+}{}
+
+\newcommand{\titulo}{Orquestación multiagente con RAG privado para docencia: OpenAI en la nube frente a LLM locales en infraestructura universitaria}
+
+\author{}
+\date{}
+
+\begin{document}
+\onecolumn
+\thispagestyle{empty} % Eliminar numeración en la primera página
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont UNIVERSIDAD SAN FRANCISCO DE QUITO USFQ}\\
+\vspace{40pt}
+\textbf{\fontsize{14}{16}\selectfont Colegio de Posgrados}\\
+\vspace{90pt}
+\textbf{\fontsize{14}{16}\selectfont \titulo}\\
+\vspace{60pt}
+\textbf{\fontsize{14}{16}\selectfont Proyecto de Titulación}\\
+\vspace{90pt}
+\textbf{\fontsize{18}{20}\selectfont David León Pilco}\\
+\vspace{70pt}
+\textbf{\fontsize{16}{18}\selectfont \textcolor{red}{Felipe Grijalva, Ph.D.}}\\
+\vspace{15pt}
+\textbf{\fontsize{16}{18}\selectfont Director de Trabajo de Titulación}\\
+\vspace{90pt}
+\fontsize{12}{14}\selectfont Trabajo de titulación de posgrado presentado como requisito para la obtención del título de \textcolor{red}{Magíster en Inteligencia Artificial}
+\vspace{40pt}
+\end{center}
+
+\begin{center}
+\fontsize{12}{14}\selectfont \textcolor{red}{Quito, 2 de noviembre de 2026}
+\end{center}
+
+\newpage
+
+\begin{center}
+\textbf{\fontsize{18}{16}\selectfont UNIVERSIDAD SAN FRANCISCO DE QUITO USFQ}\\
+\vspace{10pt}
+\textbf{\fontsize{18}{16}\selectfont COLEGIO DE POSGRADOS}\\
+\vspace{20pt}
+\textbf{\fontsize{14}{16}\selectfont HOJA DE APROBACIÓN DE TRABAJO DE TITULACIÓN}\\
+\vspace{10pt}
+\textbf{\fontsize{14}{16}\selectfont \titulo}\\
+\vspace{10pt}
+\textbf{\fontsize{14}{16}\selectfont David León Pilco}
+\end{center}
+\vspace{20pt}
+
+\begin{customfontsize}
+Nombre del Director del Programa:\hspace{3cm}\textcolor{red} {Felipe Grijalva}\\
+Título académico:\hspace{6.2cm}\textcolor{red}{Ph.D. en Ingeniería Eléctrica}\\
+Director del programa de:\hspace{4.7cm}\textcolor{red}{ Inteligencia Artificial}
+\vspace{30pt}
+\\Nombre del Decano del colegio Académico:\hspace{1.6cm}\textcolor{red}{Eduardo Alba}\\ 
+Título académico:\hspace{6.2cm}\textcolor{red}{Doctor en Ciencias Matemáticas}\\
+Decano del Colegio:\hspace{5.8cm}\textcolor{red}{Ciencias e Ingenierías}
+\vspace{30pt}
+\\Nombre del Decano del Colegio de Posgrados:\hspace{1cm}\textcolor{red}{Dario Niebieskikwiat}\\
+Título académico:\hspace{6.1cm}\textcolor{red}{Doctor en Física}
+
+\end{customfontsize}
+
+\begin{center}
+\vspace{350pt}
+\textbf{\fontsize{14}{16}\selectfont Quito, \textcolor{red}{noviembre 2026}}
+\end{center}
+
+\newpage
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont © DERECHOS DE AUTOR}\\
+\vspace{10pt}
+\end{center}
+
+\fontsize{12}{14}\selectfont
+{
+\setlength{\parindent}{3em}
+\hspace{1pt}
+
+Por medio del presente documento certifico que he leído todas las Políticas y Manuales de la Universidad San Francisco de Quito USFQ, incluyendo la Política de Propiedad Intelectual USFQ, y estoy de acuerdo con su contenido, por lo que los derechos de propiedad intelectual del presente trabajo quedan sujetos a lo dispuesto en esas Políticas.
+
+Asimismo, autorizo a la USFQ para que realice la digitalización y publicación de este trabajo en el repositorio virtual, de conformidad a lo dispuesto en la Ley Orgánica de Educación Superior del Ecuador.
+}
+
+\begin{customfontsize}
+\vspace{30pt}
+
+Nombre del estudiante:\hspace{4cm}David León Pilco\\
+\vspace{30pt}
+
+Código de estudiante:\hspace{4.2cm}\textcolor{red}{\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_}\\
+\vspace{30pt}
+
+C.I.:\hspace{7.3cm}\textcolor{red}{\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_}\\
+\vspace{30pt}
+
+Lugar y fecha:\hspace{5.4cm}Quito, \textcolor{red}{2} de \textcolor{red}{noviembre} de \textcolor{red}{2026.}
+
+\end{customfontsize}
+
+
+\newpage
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont ACLARACIÓN PARA PUBLICACIÓN}\\
+\end{center}
+\vspace{10pt}
+
+\fontsize{12}{14}\selectfont \textbf{Nota:} El presente trabajo, en su totalidad o cualquiera de sus partes, no debe ser considerado como una publicación, incluso a pesar de estar disponible sin restricciones a través de un repositorio institucional. Esta declaración se alinea con las prácticas y recomendaciones presentadas por el Committee on Publication Ethics COPE descritas por Barbour et al. (2017) Discussion document on best practice for issues around theses publishing, disponible en \url{http://bit.ly/COPETheses}.
+\vspace{10pt}
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont UNPUBLISHED DOCUMENT}\\
+\end{center}
+\vspace{10pt}
+\fontsize{12}{14}\selectfont \textbf{Note:} The following graduation project is available through Universidad San Francisco de Quito USFQ institutional repository. Nonetheless, this project -- in whole or in part -- should not be considered a publication. This statement follows the recommendations presented by the Committee on Publication Ethics COPE described by Barbour et al. (2017) Discussion document on best practice for issues around theses publishing available on \url{http://bit.ly/COPETheses}.
+
+\newpage
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont DEDICATORIA}\\
+\end{center}
+\vspace{10pt}
+
+{
+\setlength{\parindent}{3em}
+\hspace{1pt}
+\fontsize{12}{14}\selectfont 
+
+\textcolor{red}{En texto normal. Debe ser redactado de manera sobria y concisa (Opcional).}
+
+}
+\newpage
+
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont AGRADECIMIENTOS}\\
+\end{center}
+\vspace{10pt}
+\fontsize{12}{14}\selectfont 
+
+{
+\setlength{\parindent}{3em}
+\hspace{1pt}
+
+\textcolor{red}{En texto normal, debe ser redactado de manera sobria y concisa. Esta sección es opcional, pero es en la que deben ir mencionadas todas las personas e instituciones que contribuyeron al desarrollo del trabajo de titulación.}
+
+}
+\newpage
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont RESUMEN}\\
+\vspace{10pt}
+\end{center}
+\fontsize{12}{14}\selectfont 
+{
+\setlength{\parindent}{3em}
+\hspace{1pt}
+Los asistentes docentes basados en modelos de lenguaje suelen responder sin apoyarse en el material del curso y generar evaluaciones que nadie revisa; además, enviar grabaciones de clase y exámenes a un proveedor externo plantea problemas de privacidad y de coste recurrente. Este trabajo presenta un asistente compuesto por cuatro agentes (Currículo, Generador de exámenes, Rúbrica y Tutor) coordinados con LangGraph, con recuperación aumentada sobre el material privado de cada profesor, validación determinista, autocorrección mediante Reflexion y aprobación humana obligatoria de los exámenes. Un registro de perfiles hace intercambiable el proveedor de modelos, lo que permitió comparar con el mismo código OpenAI (\texttt{gpt-4o-mini}) y modelos abiertos servidos en una GPU H200 de la USFQ. Sobre un conjunto de prueba de diez peticiones, GLM-5.3-Flash local resolvió todos los casos, con recuperación de fuentes y cumplimiento de reglas completos y una puntuación media del juez de 0,99; Qwen2.5 de 7B fue 3,7 veces más rápido pero cayó a 0,65 y erró el enrutado en tres casos. Para indexar un módulo real de 15 horas de vídeo y un libro de 194 páginas, la ruta en la nube se estima en 5,48 USD, casi todo por transcripción, frente a unas 3,8 horas de GPU en la universidad. Se concluye que un modelo abierto de buen tamaño alojado localmente alcanza la calidad requerida sin coste de API y con mejor control de los datos, mientras que la nube sigue siendo la opción más simple de operar.\\
+}
+\vspace{10pt}
+\begin{center}  
+\textbf{\fontsize{12}{14}\selectfont Palabras clave:} sistemas multiagente, generación aumentada por recuperación, LangGraph, Guardrails, modelos de lenguaje locales, human-in-the-loop, evaluación educativa, Reflexion, LLM como juez.
+\end{center}
+
+\newpage
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont ABSTRACT}\\
+\end{center}
+\vspace{10pt}
+\fontsize{12}{14}\selectfont 
+{
+\setlength{\parindent}{3em}
+\hspace{1pt}
+\foreignlanguage{english}{Teaching assistants built on language models often answer without grounding in the course material and produce assessments that nobody reviews; moreover, sending lecture recordings and exams to an external provider raises privacy and recurring-cost concerns. This work presents an assistant made of four agents (Curriculum, Exam Generator, Rubric and Tutor) orchestrated with LangGraph, with retrieval augmentation over each teacher's private material, deterministic validation, self-correction through Reflexion and mandatory human approval of exams. A profile registry makes the model provider interchangeable, which allowed comparing, with the same code, OpenAI (\texttt{gpt-4o-mini}) and open models served on a USFQ H200 GPU. On a ten-request test set, local GLM-5.3-Flash solved every case, with full source recall and rule compliance and a mean judge score of 0.99; the 7B Qwen2.5 was 3.7 times faster but dropped to 0.65 and misrouted three cases. To index a real module of 15 hours of video and a 194-page book, the cloud route is estimated at USD 5.48, almost entirely for transcription, versus about 3.8 GPU-hours at the university. We conclude that a well-sized open model hosted on premises reaches the required quality with no API cost and better data control, while the cloud remains the simplest option to operate.}\\
+
+}
+\vspace{10pt}
+\begin{center}
+\textbf{\fontsize{12}{14}\selectfont Key words:} \foreignlanguage{english}{multi-agent systems, retrieval-augmented generation, LangGraph, Guardrails, local language models, human-in-the-loop, educational assessment, Reflexion, LLM-as-a-judge.}
+\end{center}
+
+
+\newpage
+
+\begin{center}
+\textbf{\fontsize{14}{16}\selectfont TABLA DE CONTENIDO}
+\end{center}
+
+\renewcommand{\contentsname}{}
+\begin{customfontsize}
+    \tableofcontents
+\end{customfontsize}
+
+
+\newpage
+
+\begin{center}
+    \textbf{\fontsize{14}{16}\selectfont ÍNDICE DE TABLAS}
+\end{center}
+
+\renewcommand{\listtablename}{}
+
+\begin{customfontsize}
+    \listoftables
+\end{customfontsize}
+
+
+\newpage
+\begin{center}
+    \textbf{\fontsize{14}{16}\selectfont ÍNDICE DE FIGURAS}
+\end{center}
+
+\renewcommand{\listfigurename}{}
+
+\begin{customfontsize}
+    \listoffigures
+\end{customfontsize}
+
+\newpage
+\twocolumn
+
+\hyphenation{or-ques-ta-ción in-fra-es-truc-tu-ra}
+
+\title{Orquestación multiagente con RAG privado para docencia: OpenAI en la nube frente a LLM locales}
+
+\author{David~León~Pilco
+        and~\textcolor{red}{Felipe~Grijalva}%
+\thanks{D. León Pilco es estudiante de la Maestría en Inteligencia Artificial de la Universidad San Francisco de Quito USFQ; F. Grijalva es director del trabajo de titulación.}%
+}
+
+\fontsize{10}{12}\selectfont
+\maketitle
+
+\begin{abstract}
+Presentamos un asistente docente de cuatro agentes coordinados con LangGraph, con
+recuperación aumentada sobre el material privado de cada profesor y aprobación humana de
+los exámenes, cuyo proveedor de modelos es intercambiable. Con el mismo código y el mismo
+conjunto de prueba comparamos modelos abiertos en una GPU H200 de la USFQ y describimos la
+operación con OpenAI. GLM-5.3-Flash resolvió 10/10 casos con puntuación media del juez de
+0,99; Qwen2.5 7B, 3,7 veces más rápido, cayó a 0,65. Indexar un módulo real cuesta
+$\approx$5,48 USD en la nube frente a $\approx$3,8 horas-GPU en local.
+\end{abstract}
+
+\begin{IEEEkeywords}
+sistemas multiagente, RAG, LangGraph, Guardrails, LLM locales, human-in-the-loop, LLM como juez.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+\section{Introducción}
+\IEEEPARstart{L}{os} asistentes basados en LLM para docencia tienen dos riesgos: responder
+``en general'' sin apoyarse en el material del curso y producir evaluaciones que nadie ha
+revisado. Además, enviar grabaciones de clase y exámenes a un proveedor externo plantea
+preguntas de privacidad y de coste recurrente. Este trabajo describe una arquitectura que
+ataca los dos primeros problemas por diseño (RAG por usuario, validación cruzada y
+aprobación humana) y mide, con el mismo código, qué se gana y qué se pierde al cambiar
+OpenAI por modelos abiertos alojados en la universidad.
+
+\section{Arquitectura e implementación}
+\subsection{Orquestación}
+Un grafo de LangGraph enruta cada petición a uno de cuatro agentes ReAct. El Generador de
+exámenes consulta tres índices (apuntes, exámenes históricos, rúbricas) y su borrador pasa
+por un validador determinista (suma de 10 puntos, tipos de pregunta, proporción de
+problemas numéricos, pregunta de seguridad) y por el agente de Rúbrica. Si se rechaza, un
+nodo de Reflexion~\cite{shinn2023} diagnostica el fallo y decide reparar o regenerar, con
+un máximo de dos intentos. El mejor intento queda en espera hasta que el docente lo
+aprueba; los aprobados se archivan como memoria de casos.
+
+\subsection{Conocimiento}
+MySQL es la fuente de verdad (documentos, fragmentos y vectores por usuario) y Chroma es un
+índice HNSW derivado, con una colección por modelo de \emph{embeddings} para no mezclar
+dimensiones. La búsqueda combina BM25 y vectores con Reciprocal Rank
+Fusion~\cite{cormack2009}; si un índice no tiene vectores del modelo activo, degrada a
+BM25 en vez de fallar. Los PDF se extraen con \texttt{pypdf}; los vídeos pasan por
+\texttt{ffmpeg} (audio de 16\,kHz en tramos de 10\,min) y Whisper. La indexación corre en
+una cola de segundo plano que registra cada paso, del audio al \emph{upsert} en Chroma.
+
+\subsection{Guardrails y anclaje a la sesión}
+Responder ``en general'' se bloquea en tres capas, siguiendo el patrón de
+middleware de LangChain~\cite{langchain-guardrails}. (1)~El router mide
+\emph{cobertura} sobre la KB del usuario (similitud coseno en Chroma/MySQL y
+solape léxico de términos de contenido); umbrales tipados
+(\texttt{UMBRAL\_COBERTURA\_KB}, \texttt{\_LEX}, \texttt{\_SEM\_FUERTE}) exigen
+evidencia real: el vecino HNSW débil (~0,3) no basta. Si falla, el grafo termina
+en \texttt{fuera\_contexto} sin generar examen ni tutoría inventada.
+(2)~Cada agente ReAct monta \texttt{GroundingGuardrailMiddleware} (before/after)
+y redacción de PII. (3)~Las \emph{constraints} del examen se extraen ancladas al
+material recuperado (asignatura/curso/temas de la KB; se respeta el número de
+preguntas pedido), sin defaults que inventen otra materia. En las corridas E2E
+documentadas~\cite{repo}, una petición de ``teoría del color / Renacimiento''
+con KB de electricidad o finanzas se rechazó en $<$5\,s
+(\texttt{agente=fuera\_contexto}); las de Ohm y Finanzas Estratégicas siguieron
+al Tutor/Currículo grounded.
+
+\subsection{Registro de modelos y servicio}
+Un perfil fija proveedor, modelo y URL sin tocar agentes ni contratos:
+\texttt{cloud\_openai} (\texttt{gpt-4o-mini} y \texttt{text-embedding-3-small}, 1536
+dimensiones) y \texttt{vllm\_usfq} (endpoint compatible con OpenAI en la H200, con
+\texttt{bge-m3}, 1024 dimensiones~\cite{chen2024bge}). El sistema se sirve como API REST
+con JWT (FastAPI) y UI en Streamlit, en dos contenedores. La suite unitaria corre
+sin red; los pipelines
+\texttt{run\_test\_pipeline.py} y \texttt{review\_agents\_pipeline.py} regeneran
+las instantáneas en \texttt{docs/}.
+
+\section{Metodología de evaluación}
+El conjunto de prueba tiene 10 peticiones etiquetadas: 4 exámenes, 2 rúbricas, 1 plan
+curricular y 3 tutorías, con fuentes esperadas y una referencia. Para cada caso se ejecuta
+el grafo hasta la aprobación humana y se mide: enrutado correcto, recall de fuentes,
+cumplimiento de reglas (solo exámenes), puntuación y aprobado del juez
+LLM~\cite{zheng2023judge}, intentos, tokens de entrada y salida, y segundos. El juez fue el
+mismo modelo que genera.
+
+\section{Resultados}
+
+\begin{table}[!t]
+\centering
+\caption{Evaluación sobre el conjunto de prueba ($n=10$)}
+\label{tab:eval}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Métrica & GLM-5.3-Flash & Qwen2.5 7B \\
+\midrule
+Casos sin error de ejecución & 10/10\textsuperscript{a} & 10/10 \\
+Enrutado correcto & 1,00 & 0,70 \\
+Recall de fuentes & 1,00 & 0,60 \\
+Exámenes que cumplen reglas & 4/4 & 1/3\textsuperscript{b} \\
+Puntuación del juez (media) & 0,99 & 0,65 \\
+Intentos por examen (media) & 1,5 & 2,0 \\
+Tokens por caso (media) & 29\,338 & 10\,509 \\
+\quad exámenes / resto & 65\,341 / 5\,336 & 23\,018 / 2\,171 \\
+Segundos por caso (media) & 55,8 & 15,1 \\
+\quad exámenes / resto & 127,7 / 7,9 & 30,9 / 4,6 \\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\footnotesize\raggedright
+\textsuperscript{a}Los 4 exámenes se repitieron con \emph{streaming}: el servidor cortaba
+la conexión a los $\approx$40\,s. \textsuperscript{b}Un examen se enrutó al Tutor.
+\end{table}
+
+\subsection{Calidad}
+GLM-5.3-Flash resolvió todos los casos (Tabla~\ref{tab:eval}): enrutado perfecto, todas las
+fuentes esperadas y los cuatro exámenes dentro de las reglas, dos al primer intento.
+Qwen2.5 7B es rápido pero confunde la intención: envió al Tutor una petición de currículo,
+una de examen y una de rúbrica. Solo 1 de sus 3 exámenes cumplió las reglas tras dos
+intentos. Ambos jueces aprobaron el 100\,\% de los casos, incluso uno con puntuación 0,00:
+la puntuación discrimina, el aprobado binario no, por el sesgo de autoevaluación.
+
+\subsection{OpenAI}
+Con \texttt{cloud\_openai}, el recorrido completo en producción (ingesta, tutoría, examen,
+aprobación y currículo) tardó $\approx$70\,s, con el examen en 28\,s y veredicto de rúbrica
+aprobado~\cite{repo}. El conjunto de prueba no pudo correrse con OpenAI porque la cuenta
+quedó sin crédito (HTTP 429), así que no se reportan sus métricas en la
+Tabla~\ref{tab:eval}.
+
+\begin{table}[!t]
+\centering
+\caption{Indexación de un módulo real (8 vídeos, 15,2\,h; PDF de 194 págs.)}
+\label{tab:ingesta}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & OpenAI & H200 USFQ \\
+\midrule
+\emph{Embeddings} & 3-small (1536) & bge-m3 (1024) \\
+\emph{Embeddings} del PDF & 31\,s\textsuperscript{c} & $\approx$50\,s \\
+Transcripción de 2\,h & 294\,s & 330\,s\textsuperscript{d} \\
+Coste API estimado & 5,48 USD & 0 USD \\
+\quad del cual transcripción & 5,47 USD & --- \\
+Cómputo local estimado & --- & 3,8 h-GPU \\
+Energía estimada & --- & 1,14 kWh \\
+Almacén vectorial & 7,6 MB & 5,1 MB \\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\footnotesize\raggedright
+\textsuperscript{c}78 fragmentos; en la H200, 236. \textsuperscript{d}Con whisper-1 de
+OpenAI en ambas rutas; cómputo y energía locales estimados con \texttt{faster-whisper}.
+\end{table}
+
+\subsection{Ingesta}
+Con \texttt{bge-m3} en la H200 se indexaron 8 de 9 archivos (826 vectores) en
+$\approx$46\,min (Tabla~\ref{tab:ingesta}); el noveno se detuvo por falta de crédito en la
+transcripción. En la nube, el 99,9\,\% del coste es transcripción: los \emph{embeddings}
+del módulo completo cuestan 0,004 USD.
+
+\section{Discusión: OpenAI frente a LLM locales}
+\textbf{Calidad.} Depende más de la capacidad del modelo que de dónde corre: GLM-5.3-Flash
+local alcanzó el techo del conjunto, y un 7B no basta para enrutar y cumplir restricciones
+compuestas. El cuello de botella es el seguimiento de instrucciones, no la recuperación.
+
+\textbf{Coste.} OpenAI cobra por uso y su coste lo domina la transcripción; la ruta local lo
+convierte en horas-GPU de bajo coste energético, pero con amortización y operación no
+medidas que suelen dominar el coste total. La nube conviene para volúmenes pequeños; la
+GPU propia, para indexar cursos completos de forma recurrente.
+
+\textbf{Privacidad y dependencia.} La ruta local mantiene grabaciones y exámenes en la
+universidad. La nube añade un punto único de fallo: la cuota agotada bloqueó a la vez la
+transcripción y todos los agentes.
+
+\textbf{Operación.} OpenAI funciona desde cualquier red. La H200 exige VPN, puertos
+expuestos y ajustes como el \emph{streaming} para respuestas largas. Cambiar de modelo de
+\emph{embeddings} obliga a reindexar: la base vectorizada con OpenAI quedó solo con BM25 al
+pasar a \texttt{bge-m3}.
+
+\textbf{Entrenamiento.} No se hizo ajuste fino de pesos ni con OpenAI ni en local. El
+aprendizaje es en contexto: Reflexion extrae lecciones durante la ejecución y un script
+consolida reglas generales desde un conjunto de entrenamiento. Evita el coste del
+\emph{fine-tuning} y funciona igual con cualquier proveedor, pero su efecto aún no se midió.
+
+\section{Limitaciones}
+El conjunto de prueba es pequeño ($n=10$) y de un solo dominio (Tecnología, 3.º ESO), el
+juez coincide con el generador, falta la evaluación de OpenAI sobre el mismo conjunto, y
+el coste local y la transcripción en la H200 son estimaciones.
+
+\section{Conclusiones}
+La arquitectura permite cambiar de proveedor sin tocar los agentes; la validación
+determinista, los Guardrails de cobertura y la aprobación humana contienen tanto los
+errores del modelo como las peticiones fuera del material de la sesión. Un LLM abierto de
+buen tamaño en la H200 iguala el techo del conjunto sin coste de API; los de 7B no bastan
+para exámenes. Como trabajo futuro: evaluar OpenAI con un juez externo fijo, ampliar el
+conjunto a varias asignaturas, mover la transcripción a la H200 y medir el manual de
+reglas aprendido.
+
+\begin{thebibliography}{6}
+\bibitem{shinn2023}
+N.~Shinn, F.~Cassano, A.~Gopinath, K.~Narasimhan y S.~Yao, ``Reflexion: Language agents
+with verbal reinforcement learning,'' en \emph{Proc. NeurIPS}, 2023.
+\bibitem{cormack2009}
+G.~V.~Cormack, C.~L.~A.~Clarke y S.~Buettcher, ``Reciprocal rank fusion outperforms
+Condorcet and individual rank learning methods,'' en \emph{Proc. SIGIR}, 2009,
+pp.~758--759.
+\bibitem{chen2024bge}
+J.~Chen \emph{et~al.}, ``BGE M3-Embedding: Multi-lingual, multi-functionality,
+multi-granularity text embeddings through self-knowledge distillation,''
+\emph{arXiv:2402.03216}, 2024.
+\bibitem{zheng2023judge}
+L.~Zheng \emph{et~al.}, ``Judging LLM-as-a-judge with MT-Bench and Chatbot Arena,'' en
+\emph{Proc. NeurIPS Datasets and Benchmarks}, 2023.
+\bibitem{repo}
+D.~León Pilco, ``Orquestación de Agentes: código, métricas y registros de corrida,''
+repositorio del proyecto, \texttt{docs/} y \texttt{storage/metrics/}, 2026.
+\bibitem{langchain-guardrails}
+LangChain, ``Guardrails,'' documentación OSS Python,
+\url{https://docs.langchain.com/oss/python/langchain/guardrails}, 2025.
+\end{thebibliography}
+
+\end{document}

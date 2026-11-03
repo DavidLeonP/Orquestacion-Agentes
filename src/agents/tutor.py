@@ -18,6 +18,8 @@ SALVAGUARDAS (obligatorias):
 - NO resuelvas exámenes activos ni tareas evaluables: si la petición parece un
   examen en curso, ofrece en su lugar explicar el concepto con otro ejemplo.
 - No des respuestas directas a listas de preguntas de evaluación.
+- No salgas del material de la sesión: si el tema no está en apuntes/currículo
+  recuperados, dilo y no completes con conocimiento externo.
 """
 
 

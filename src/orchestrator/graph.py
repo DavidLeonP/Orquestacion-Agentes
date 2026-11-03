@@ -50,6 +50,7 @@ from src.orchestrator.reflexion import (
     verificar_examen,
 )
 from src.orchestrator.routing import enrutar_por_reglas
+from src.rag.cobertura import evaluar_cobertura, indices_para_agente
 from src.rag.context import iniciar_evidencia, rag_user_id_actual
 
 
@@ -69,6 +70,7 @@ class EstadoOrquestador(TypedDict, total=False):
     modo: str  # siguiente intento: "regenerar" (Reflexion) o "reparar" (corrige el borrador)
     reglas_nuevas: list[str]  # Reflexion: reglas generales para el entrenamiento
     respuesta_final: str
+    cobertura_kb: dict  # resultado del guardrail de cobertura documental
 
 
 # El router lo aplica en cada petición: un thread_id reutilizado (legacy_chat_api)
@@ -81,7 +83,54 @@ ESTADO_PETICION_NUEVA = {
     "lecciones": [],
     "modo": "regenerar",
     "reglas_nuevas": [],
+    "cobertura_kb": {},
 }
+
+
+def _extraer_constraints(
+    llm_constraints,
+    peticion: str,
+    cobertura: Any,
+) -> ConstraintsExamen:
+    """Constraints ancladas a la KB recuperada; respeta el número pedido."""
+    material = cobertura.resumen_para_prompt or "(sin fragmentos)"
+    pista_asig = cobertura.asignatura or "(inferir solo del material)"
+    pista_curso = cobertura.curso or "(inferir solo del material)"
+    pista_temas = ", ".join(cobertura.temas_sugeridos) or "(inferir solo del material)"
+    prompt = (
+        "Extrae las constraints del examen a partir de la petición del docente y "
+        "del material documental recuperado de la sesión (KB vectorial).\n\n"
+        "REGLAS OBLIGATORIAS:\n"
+        "1. num_preguntas, duracion_minutos, dificultad y puntuacion_total: usa "
+        "los valores EXPLÍCITOS de la petición cuando existan. No fuerces 6 "
+        "preguntas si el docente pidió otro número.\n"
+        "2. asignatura, curso y temas: SOLO desde el material recuperado o desde "
+        "la petición si está respaldada por ese material. No inventes temas "
+        "ajenos (arte, historia, color, etc.) si no aparecen en el material.\n"
+        "3. Si la petición pide un tema sin respaldo en el material, deja "
+        "temas=[] (el orquestador ya habrá bloqueado fuera de contexto).\n"
+        "4. Si falta un dato numérico no citado, usa defaults prudentes: "
+        "55 min, dificultad media, 10 puntos. Para asignatura/curso sin pista "
+        "clara usa los del material; si tampoco hay, Tecnología / 3º ESO.\n\n"
+        f"Pistas del material: asignatura={pista_asig}; curso={pista_curso}; "
+        f"temas≈{pista_temas}\n\n"
+        f"Material recuperado:\n{material}\n\n"
+        f"Petición del docente:\n{peticion}"
+    )
+    try:
+        constraints = llm_constraints.invoke(prompt)
+        if not isinstance(constraints, ConstraintsExamen):
+            constraints, _ = safe_parse(ConstraintsExamen, constraints)
+    except Exception:  # noqa: BLE001
+        constraints = ConstraintsExamen()
+    # Refuerzo determinista: metadatos de KB pisan alucinaciones de asignatura/curso.
+    if cobertura.asignatura:
+        constraints.asignatura = cobertura.asignatura
+    if cobertura.curso:
+        constraints.curso = cobertura.curso
+    if not constraints.temas and cobertura.temas_sugeridos:
+        constraints.temas = list(cobertura.temas_sugeridos[:5])
+    return constraints
 
 
 def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
@@ -96,16 +145,48 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
         "tutor": crear_tutor_agent(),
     }
 
-    def router(estado: EstadoOrquestador) -> dict:
-        if estado.get("rol_usuario") == "alumno":
-            destino = "tutor"
+    def _aplicar_cobertura(
+        out: dict[str, Any], peticion: str, destino: str, metodo: str
+    ) -> tuple[dict[str, Any], Any]:
+        """Evalúa KB; si no hay cobertura, reescribe destino a fuera_contexto."""
+        try:
+            cobertura = evaluar_cobertura(peticion, indices_para_agente(destino))
+        except Exception as exc:  # noqa: BLE001
+            registrar_evento("guardrail_error", capa="router", error=str(exc)[:300])
+            return out, None
+
+        out["cobertura_kb"] = {
+            "suficiente": cobertura.suficiente,
+            "score": cobertura.score,
+            "motivo": cobertura.motivo,
+            "fuentes": cobertura.fuentes,
+        }
+        if not cobertura.suficiente:
+            out["agente_destino"] = "fuera_contexto"
+            out["respuesta_final"] = cobertura.mensaje_rechazo()
             registrar_evento(
                 "router",
-                metodo="regla",
-                agente_destino=destino,
-                motivo="rol_usuario=alumno",
+                metodo=metodo,
+                agente_destino="fuera_contexto",
+                destino_original=destino,
+                motivo=cobertura.motivo,
             )
-            return {"agente_destino": destino, **ESTADO_PETICION_NUEVA}
+        return out, cobertura
+
+    def router(estado: EstadoOrquestador) -> dict:
+        if estado.get("rol_usuario") == "alumno":
+            destino, metodo = "tutor", "regla"
+            out: dict[str, Any] = {"agente_destino": destino, **ESTADO_PETICION_NUEVA}
+            out, _ = _aplicar_cobertura(out, estado["peticion"], destino, metodo)
+            if out["agente_destino"] != "fuera_contexto":
+                registrar_evento(
+                    "router",
+                    metodo=metodo,
+                    agente_destino=destino,
+                    motivo="rol_usuario=alumno",
+                )
+            return out
+
         destino, metodo = enrutar_por_reglas(estado["peticion"]), "regla"
         if destino is None:
             metodo = "llm"
@@ -126,24 +207,22 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
                 DecisionRouter, decision, fallback=DecisionRouter(agente="tutor")
             )
             destino = decision.agente
-        out: dict[str, Any] = {"agente_destino": destino, **ESTADO_PETICION_NUEVA}
+
+        out = {"agente_destino": destino, **ESTADO_PETICION_NUEVA}
+        out, cobertura = _aplicar_cobertura(out, estado["peticion"], destino, metodo)
+        if out["agente_destino"] == "fuera_contexto":
+            return out
+
         if destino == "exam_generator":
             user_id = rag_user_id_actual()
             if user_id:
                 out["casos"] = memoria_casos.recordar(user_id, estado["peticion"])
                 out["criterios"] = dump_state(cargar_criterios(user_id))
-            try:
-                constraints = llm_constraints.invoke(
-                    "Extrae las constraints del examen a partir de esta petición. "
-                    "Si falta un dato, usa valores razonables por defecto "
-                    "(Tecnología, 3º ESO, 6 preguntas, 55 min, media, 10 puntos):\n\n"
-                    f"{estado['peticion']}"
-                )
-                if not isinstance(constraints, ConstraintsExamen):
-                    constraints, _ = safe_parse(ConstraintsExamen, constraints)
-                out["constraints"] = dump_state(constraints)
-            except Exception:  # noqa: BLE001
-                out["constraints"] = dump_state(ConstraintsExamen())
+            out["constraints"] = dump_state(
+                _extraer_constraints(llm_constraints, estado["peticion"], cobertura)
+                if cobertura is not None
+                else ConstraintsExamen()
+            )
         registrar_evento("router", metodo=metodo, agente_destino=destino)
         return out
 
@@ -329,6 +408,15 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     def finalizar(estado: EstadoOrquestador) -> dict:
         return {"respuesta_final": estado["borrador"]}
 
+    def nodo_fuera_contexto(estado: EstadoOrquestador) -> dict:
+        return {
+            "respuesta_final": estado.get("respuesta_final")
+            or (
+                "No hay evidencia suficiente en la base documental de la sesión "
+                "para atender esta petición."
+            )
+        }
+
     def ruta_desde_router(estado: EstadoOrquestador) -> str:
         return estado["agente_destino"]
 
@@ -342,12 +430,13 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     grafo.add_node("reflexionar", reflexionar)
     grafo.add_node("aprobacion_docente", aprobacion_docente)
     grafo.add_node("finalizar", finalizar)
+    grafo.add_node("fuera_contexto", nodo_fuera_contexto)
 
     grafo.add_edge(START, "router")
     grafo.add_conditional_edges(
         "router",
         ruta_desde_router,
-        ["curriculum", "exam_generator", "rubric", "tutor"],
+        ["curriculum", "exam_generator", "rubric", "tutor", "fuera_contexto"],
     )
     grafo.add_edge("exam_generator", "validar")
     grafo.add_conditional_edges(
@@ -361,5 +450,6 @@ def construir_grafo(checkpointer: Any = None, memory_backend: Any = None):
     grafo.add_edge("tutor", "finalizar")
     grafo.add_edge("aprobacion_docente", END)
     grafo.add_edge("finalizar", END)
+    grafo.add_edge("fuera_contexto", END)
 
     return grafo.compile(checkpointer=checkpointer or MemorySaver())

@@ -139,6 +139,13 @@ class SqlQueryCreateIn(BaseModel):
     agent_db_uri: str | None = None
 
 
+class SqlQueryClarifyIn(BaseModel):
+    """Aclaración humana cuando el SQL Agent está en `waiting_clarification`."""
+
+    aclaracion: str = Field(min_length=1, max_length=4000)
+    agent_db_uri: str | None = None
+
+
 class SqlQueryOut(BaseModel):
     id: int
     thread_id: str

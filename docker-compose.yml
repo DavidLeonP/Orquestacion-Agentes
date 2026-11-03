@@ -9,6 +9,9 @@ services:
     environment:
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      # BD sintética académica (mismo cableado que producción / remote.sh)
+      - AGENT_DB_URI=sqlite:////app/data/negocio_academico.db
+      - SQL_AGENT_KG_PATH=/app/data/sintetica_academica/knowledge_graph.json
     volumes:
       - ./data:/app/data:ro
       - asistente_storage:/app/storage

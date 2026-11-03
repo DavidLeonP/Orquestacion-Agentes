@@ -177,3 +177,14 @@ class ApiClient:
 
     def sql_query_events(self, query_id: int) -> list[dict[str, Any]]:
         return self._request("GET", f"/sql-queries/{query_id}/events")
+
+    def clarify_sql_query(
+        self,
+        query_id: int,
+        aclaracion: str,
+        agent_db_uri: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"aclaracion": aclaracion}
+        if agent_db_uri:
+            body["agent_db_uri"] = agent_db_uri
+        return self._request("POST", f"/sql-queries/{query_id}/clarify", json=body)

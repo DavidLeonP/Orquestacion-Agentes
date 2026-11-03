@@ -59,6 +59,14 @@ JUEZ_MODEL = os.getenv("JUEZ_MODEL") or None
 
 # Memoria de casos: similitud coseno mínima para usar un examen aprobado como pista
 UMBRAL_MEMORIA_CASOS = float(os.getenv("UMBRAL_MEMORIA_CASOS", "0.75"))
+# Memoria de aclaraciones SQL (Chroma clarificaciones_sql_*): umbral coseno
+UMBRAL_MEMORIA_SQL = float(os.getenv("UMBRAL_MEMORIA_SQL", "0.70"))
+# Guardrail de grounding: similitud coseno mínima consulta↔KB.
+# El vecino HNSW siempre existe; por eso cobertura exige además solape léxico
+# (ver src/rag/cobertura.py) salvo similitud semántica alta.
+UMBRAL_COBERTURA_KB = float(os.getenv("UMBRAL_COBERTURA_KB", "0.38"))
+UMBRAL_COBERTURA_LEX = float(os.getenv("UMBRAL_COBERTURA_LEX", "0.20"))
+UMBRAL_COBERTURA_SEM_FUERTE = float(os.getenv("UMBRAL_COBERTURA_SEM_FUERTE", "0.55"))
 # Manual de reglas aprendidas en entrenamiento (scripts/entrenar_reglas.py)
 RUTA_REGLAS = DIR_STORAGE / "reglas_aprendidas.json"
 DIR_EVAL = RAIZ / "eval"
@@ -68,10 +76,23 @@ DIR_EVAL = RAIZ / "eval"
 # metadatos de la app). Recomendado: usuario MySQL con permisos solo SELECT.
 # Cada request a POST /sql-queries puede enviar su propio `agent_db_uri` para
 # apuntar a otra BD sin reiniciar el proceso (ver SqlQueryCreateIn).
-AGENT_DB_URI = os.getenv("AGENT_DB_URI", "")
+# Demo sintética: sqlite:////abs/path/data/negocio_academico.db
+#   (generar con scripts/generar_sintetica_academica.py + migrar_sintetica_academica.py)
+_default_negocio = DIR_DATOS / "negocio_academico.db"
+AGENT_DB_URI = os.getenv(
+    "AGENT_DB_URI",
+    f"sqlite:///{_default_negocio}" if _default_negocio.exists() else "",
+)
+# Grafo de conocimiento del esquema (contexto anti-alucinación para query_gen)
+SQL_AGENT_KG_PATH = os.getenv(
+    "SQL_AGENT_KG_PATH",
+    str(DIR_DATOS / "sintetica_academica" / "knowledge_graph.json"),
+)
 # Límite del loop query_gen -> correct_query -> execute_query antes de cortar
 # con una respuesta controlada (retry_agotado) en vez de RECURSION_LIMIT.
 MAX_SQL_AGENT_ITERACIONES = int(os.getenv("MAX_SQL_AGENT_ITERACIONES", "10"))
+# Ciclos de validación/reflexión antes de emitir o pedir aclaración humana.
+MAX_SQL_AGENT_VALIDACIONES = int(os.getenv("MAX_SQL_AGENT_VALIDACIONES", "2"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_VERBOSE = os.getenv("LOG_VERBOSE", "false").lower() in {"1", "true", "yes"}

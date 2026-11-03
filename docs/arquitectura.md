@@ -42,10 +42,12 @@ flowchart TB
     Hitl --> MySQL
     SqlQ --> MySQL
     Req --> Orq[Orquestador_LangGraph]
-    Orq --> CA[Curriculum]
-    Orq --> EG[ExamGenerator]
-    Orq --> RA[Rubric]
-    Orq --> TA[Tutor]
+    Orq --> Cov[Guardrail_cobertura_KB]
+    Cov -->|insuficiente| FC[fuera_contexto]
+    Cov -->|ok| CA[Curriculum]
+    Cov -->|ok| EG[ExamGenerator]
+    Cov -->|ok| RA[Rubric]
+    Cov -->|ok| TA[Tutor]
     SqlQ --> SQL[SQL_Agent_LangGraph]
     SQL --> BizDB[(BD_de_negocio_AGENT_DB_URI)]
     subgraph conocimiento [Capa_Conocimiento_por_usuario]
@@ -58,6 +60,7 @@ flowchart TB
     EG --> Hibrida
     RA --> Hibrida
     TA --> Hibrida
+    Cov --> Hibrida
     Hibrida --> Docs
     Hibrida --> Chunks
     Hibrida --> Emb
@@ -398,7 +401,8 @@ sequenceDiagram
 | Auth | JWT (python-jose) + passlib/bcrypt | Roles docente/alumno |
 | Persistencia | MySQL (SQLAlchemy) | Usuarios, KB, requests, memoria |
 | Orquestación | LangGraph | Grafo, checkpoint, interrupt HITL |
-| Agentes | `langchain.agents.create_agent` + middleware `error_como_observacion` | ReAct; un fallo de tool vuelve como observación |
+| Agentes | `create_agent` + Guardrails (`GroundingGuardrailMiddleware`, PII) + `error_como_observacion` | ReAct anclado a KB; nodo `fuera_contexto`; fallo de tool → observación |
+| Guardrails | `src/rag/cobertura.py` + `src/agents/guardrails.py` | Coseno + léxico (`UMBRAL_COBERTURA_*`); middleware LangChain before/after agent |
 | RAG | BM25 + Chroma HNSW (`VECTOR_BACKEND`, fallback coseno MySQL) + RRF | Embeddings OpenAI, vLLM u Ollama; colección por modelo |
 | Índice vectorial | ChromaDB embebido (`storage/chroma`) | Derivado de MySQL; también memoria de casos |
 | Evaluación | `eval/` + juez LLM (`JUEZ_MODEL`) + métricas deterministas | Medir y entrenar el manual de reglas |
@@ -449,7 +453,8 @@ Módulos del profesor (PDF/vídeo):
 ```bash
 python scripts/estimate_module_ingest.py contabilidadFinaciera --write-doc
 python scripts/transcribe_and_index_module.py          # Whisper + embed + MySQL
-python scripts/review_agents_pipeline.py --write-doc   # revisión agentes + RAG
+python scripts/run_test_pipeline.py --write-doc        # JWT E2E + Guardrails → docs/resultados-pipeline.md
+python scripts/review_agents_pipeline.py --write-doc   # agentes + fuera_contexto → docs/revision-implementacion-agentes.md
 ```
 
 ## 10. Diagramas adicionales

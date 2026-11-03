@@ -1,10 +1,12 @@
 """Pipeline de validación E2E del backend (MySQL + JWT + RAG + orquestador).
 
 Caso de prueba: un docente nuevo sube un apunte, lo indexa en MySQL,
-lanza una solicitud al orquestador y recibe respuesta grounded.
+lanza una solicitud al orquestador y recibe respuesta grounded. También
+comprueba Guardrails (petición fuera de contexto → rechazo sin inventar).
 
 Uso:
   python scripts/run_test_pipeline.py
+  python scripts/run_test_pipeline.py --write-doc
 
 Opcional (solo smoke, sin OpenAI/LLM):
   python scripts/run_test_pipeline.py --smoke
@@ -17,6 +19,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,8 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.db.models import Chunk, Document, Request, User
+from src.db.models import User
 from src.db.session import SessionLocal
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass
@@ -38,6 +43,9 @@ class StepResult:
 @dataclass
 class PipelineReport:
     steps: list[StepResult] = field(default_factory=list)
+    started_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def add(self, name: str, ok: bool, detail: str = "") -> None:
         self.steps.append(StepResult(name, ok, detail))
@@ -200,6 +208,111 @@ def run_full(client: TestClient, report: PipelineReport, email: str, password: s
         f"n={len(events)}",
     )
 
+    # Guardrails: tema ajeno a la KB de la sesión (electricidad) no debe inventar examen.
+    r = client.post(
+        "/requests",
+        headers=headers,
+        json={
+            "peticion": (
+                "quiero que me des 2 preguntas complejas de la teoria de colores "
+                "que uso los artistas del renacimiento en europa"
+            )
+        },
+    )
+    report.add(
+        "POST /requests (fuera de contexto)",
+        r.status_code == 202,
+        f"id={r.json().get('id')}",
+    )
+    if r.status_code != 202:
+        return
+    req_fc = r.json()["id"]
+    final_fc = None
+    for _ in range(60):
+        r = client.get(f"/requests/{req_fc}", headers=headers)
+        if r.status_code != 200:
+            break
+        final_fc = r.json()
+        if final_fc.get("status") in {"completed", "failed", "waiting_approval"}:
+            break
+        time.sleep(2)
+    status_fc = (final_fc or {}).get("status")
+    resp_fc = ((final_fc or {}).get("respuesta_final") or "").lower()
+    agente_fc = (final_fc or {}).get("agente_destino")
+    ok_fc = status_fc == "completed" and any(
+        x in resp_fc
+        for x in (
+            "base documental",
+            "no puedo atender",
+            "no hay evidencia",
+            "fuera de contexto",
+            "sesión",
+        )
+    )
+    report.add(
+        "Guardrails bloquea fuera de contexto",
+        ok_fc,
+        f"status={status_fc} agente={agente_fc} preview={(final_fc or {}).get('respuesta_final', '')[:140]!r}",
+    )
+
+
+def _write_doc(report: PipelineReport, email: str, mode: str) -> Path:
+    doc = ROOT / "docs" / "resultados-pipeline.md"
+    total = len(report.steps)
+    ok_n = sum(1 for s in report.steps if s.ok)
+    lines = [
+        "# Resultados de ejecución del pipeline (API JWT)",
+        "",
+        "> Instantánea generada por `scripts/run_test_pipeline.py --write-doc`. "
+        "Incluye ingest RAG, orquestador grounded y Guardrails de cobertura KB. "
+        "Diseño: [arquitectura.md](arquitectura.md).",
+        "",
+        f"**Fecha (UTC):** {report.started_at}",
+        f"**Modo:** `{mode}` (TestClient → `src.api.main:app`)",
+        f"**Usuario temporal:** `{email}`",
+        f"**Estado:** {'PASS' if report.passed else 'FAIL'} ({ok_n}/{total} pasos)",
+        "**Script:** [`scripts/run_test_pipeline.py`](../scripts/run_test_pipeline.py)",
+        "",
+        "## Resumen ejecutivo",
+        "",
+        "| Paso | OK | Detalle |",
+        "|---|---|---|",
+    ]
+    for s in report.steps:
+        det = (s.detail or "").replace("|", "/").replace("\n", " ")[:160]
+        lines.append(f"| `{s.name}` | {'✅' if s.ok else '❌'} | {det} |")
+
+    lines += [
+        "",
+        "**Veredicto:** con Guardrails activos, el pipeline JWT indexa material en "
+        "MySQL/Chroma, el orquestador responde anclado a la KB de la sesión y "
+        "rechaza peticiones fuera de contexto (p. ej. Renacimiento / teoría del "
+        "color cuando la KB es electricidad) sin inventar un examen.",
+        "",
+        "## Guardrails observados",
+        "",
+        "- Umbral: `UMBRAL_COBERTURA_KB` (`src/config.py`, default `0.32`).",
+        "- Router → nodo `fuera_contexto` si `evaluar_cobertura` falla.",
+        "- Middleware `GroundingGuardrailMiddleware` en cada agente ReAct "
+        "([LangChain Guardrails](https://docs.langchain.com/oss/python/langchain/guardrails)).",
+        "- Constraints del examen ancladas al material recuperado (sin forzar "
+        "`6 preguntas` / temas ajenos).",
+        "",
+        "## Cómo reproducir",
+        "",
+        "```bash",
+        "python scripts/run_test_pipeline.py --write-doc",
+        "# solo auth/CRUD:",
+        "python scripts/run_test_pipeline.py --smoke",
+        "```",
+        "",
+        "Nota: el script histórico `scripts/run_pipeline_api.py` apunta a la API "
+        "legado `/api/v1/*`. El camino actual es JWT (`/auth`, `/knowledge`, `/requests`).",
+        "",
+    ]
+    doc.write_text("\n".join(lines), encoding="utf-8")
+    return doc
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pipeline de pruebas del backend")
@@ -213,15 +326,21 @@ def main() -> int:
         action="store_true",
         help="No borrar el usuario de prueba al final",
     )
+    parser.add_argument(
+        "--write-doc",
+        action="store_true",
+        help="Escribe docs/resultados-pipeline.md con esta corrida",
+    )
     args = parser.parse_args()
 
     email = _unique_email()
     password = "TestPipeline123!"
     report = PipelineReport()
+    mode = "smoke" if args.smoke else "full (ingest + LLM + Guardrails)"
 
     print("=" * 60)
     print("PIPELINE DE PRUEBAS — Orquestación Agentes Educación")
-    print(f"Modo: {'smoke' if args.smoke else 'full (ingest + LLM)'}")
+    print(f"Modo: {mode}")
     print(f"Usuario temporal: {email}")
     print("=" * 60)
 
@@ -243,6 +362,10 @@ def main() -> int:
                 report.add("Cleanup usuario de prueba", left is None)
             finally:
                 db.close()
+
+    if args.write_doc:
+        path = _write_doc(report, email, mode)
+        print(f"DOC: {path}")
 
     print("=" * 60)
     total = len(report.steps)

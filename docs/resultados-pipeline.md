@@ -1,161 +1,52 @@
-# Resultados de ejecución del pipeline (API)
+# Resultados de ejecución del pipeline (API JWT)
 
-> Instantánea histórica de una corrida de `scripts/run_test_pipeline.py`; no describe el
-> flujo actual (ver [arquitectura.md](arquitectura.md)).
+> Instantánea generada por `scripts/run_test_pipeline.py --write-doc`. Incluye ingest RAG, orquestador grounded y Guardrails de cobertura KB. Diseño: [arquitectura.md](arquitectura.md).
 
-**Fecha (UTC):** 2026-07-12T20:39:45Z  
-**Base URL:** `http://146.190.151.125:8000`  
-**Estado:** completado con éxito  
-**Duración total aproximada:** ~70 s  
-**Script:** [`scripts/run_pipeline_api.py`](../scripts/run_pipeline_api.py)  
-**JSON crudo:** `_pipeline_run_raw.json` (artefacto local de la corrida, no versionado)
+**Fecha (UTC):** 2026-11-02T18:48:46.878872+00:00
+**Modo:** `full (ingest + LLM + Guardrails)` (TestClient → `src.api.main:app`)
+**Usuario temporal:** `test_accdb32d95@pipeline.test`
+**Estado:** PASS (16/16 pasos)
+**Script:** [`scripts/run_test_pipeline.py`](../scripts/run_test_pipeline.py)
 
 ## Resumen ejecutivo
 
-| Paso | Endpoint | HTTP | Tiempo | Resultado |
-|---|---|---|---|---|
-| Health | `GET /api/v1/health` | 200 | 0.62 s | `openai_configured: true` |
-| Ingesta | `POST /api/v1/ingestar` | 200 | 8.39 s | 12 chunks en 4 índices |
-| Chat alumno (Tutor) | `POST /api/v1/chat` | 200 | 16.02 s | `completed` |
-| Chat docente (examen) | `POST /api/v1/chat` | 200 | 28.16 s | `awaiting_approval` + veredicto APROBADO |
-| Aprobación docente | `POST /api/v1/approve` | 200 | 0.82 s | `completed` (examen publicado) |
-| Chat docente (currículo) | `POST /api/v1/chat` | 200 | 15.99 s | `completed` (12 sesiones) |
-
-**Veredicto global:** el pipeline end-to-end vía API funciona: RAG indexa, el Tutor responde con ejemplos del material del instituto, el Exam Generator + Rubric validan, el human-in-the-loop aprueba, y el Curriculum Agent estructura la unidad alineada al currículo.
-
-## 1. Health
-
-```json
-{
-  "status": "ok",
-  "service": "asistente-ia-educacion",
-  "openai_configured": true
-}
-```
-
-Contenedor reiniciado con `.env` sincronizado (`OPENAI_API_KEY` presente en el proceso).
-
-## 2. Ingesta RAG
-
-```json
-{
-  "status": "ok",
-  "indices": {
-    "apuntes": 4,
-    "examenes": 4,
-    "rubricas": 2,
-    "curriculo": 2
-  }
-}
-```
-
-| Índice | Chunks | Origen típico |
+| Paso | OK | Detalle |
 |---|---|---|
-| `apuntes` | 4 | Electricidad + circuitos (3º ESO) |
-| `examenes` | 4 | Convocatorias 2023 y 2024 |
-| `rubricas` | 2 | Criterios de diseño/corrección |
-| `curriculo` | 2 | Programación didáctica bloque electricidad |
+| `GET /health` | ✅ | {"status":"ok","llm":{"profile":"cloud_openai","llm_provider":"openai","llm_model":"gpt-4o-mini","embedding_provider":"openai","embedding_model":"text-embedding |
+| `POST /auth/register` | ✅ | id=80 |
+| `POST /auth/login` | ✅ |  |
+| `GET /auth/me` | ✅ | docente |
+| `POST /knowledge/apuntes/documents` | ✅ | doc=45 |
+| `GET /knowledge/documents` | ✅ | n=1 |
+| `PATCH /knowledge/documents/{id}` | ✅ | pending |
+| `POST /knowledge/ingest` | ✅ | {'procesados': 1, 'errores': 0, 'detalle': [{'document_id': 45, 'filename': 'pipeline_ohm.txt', 'chunks': 1}]} |
+| `GET /knowledge/chunks (RAG MySQL)` | ✅ | n=1 |
+| `POST /requests` | ✅ | id=35 status=running |
+| `Orquestador responde (GET /requests/{id})` | ✅ | status=completed len=730 |
+| `Respuesta parece grounded en KB` | ✅ | La ley de Ohm establece la relación entre la tensión (V), la corriente (I) y la resistencia (R) en un circuito eléctrico |
+| `GET /requests/{id}/events` | ✅ | n=4 |
+| `POST /requests (fuera de contexto)` | ✅ | id=36 |
+| `Guardrails bloquea fuera de contexto` | ✅ | status=completed agente=fuera_contexto preview='No puedo atender esta petición con el material de la sesión actual: no hay evidencia suficiente en la base docum |
+| `Cleanup usuario de prueba` | ✅ |  |
 
-## 3. Tutor Agent (alumno)
+**Veredicto:** con Guardrails activos, el pipeline JWT indexa material en MySQL/Chroma, el orquestador responde anclado a la KB de la sesión y rechaza peticiones fuera de contexto (p. ej. Renacimiento / teoría del color cuando la KB es electricidad) sin inventar un examen.
 
-- **thread_id:** `9d4e5f3d-eb43-44ff-9812-ce96ba633101`
-- **Petición:** diferencia entre circuito en serie y en paralelo, con ejemplos del instituto.
-- **Status:** `completed`
+## Guardrails observados
 
-### Observaciones
+- Umbrales (`src/config.py`): `UMBRAL_COBERTURA_KB=0.38`, `UMBRAL_COBERTURA_LEX=0.20`,
+  `UMBRAL_COBERTURA_SEM_FUERTE=0.55` (el top-1 HNSW solo no abre la puerta).
+- Router → nodo `fuera_contexto` si `evaluar_cobertura` falla.
+- Middleware `GroundingGuardrailMiddleware` + PII email en cada agente ReAct
+  ([LangChain Guardrails](https://docs.langchain.com/oss/python/langchain/guardrails)).
+- Constraints del examen ancladas al material recuperado (sin forzar `6 preguntas` / temas ajenos).
+- En esta corrida: petición Renacimiento → `agente=fuera_contexto`, tutor Ohm → grounded.
 
-- Usa los valores de los apuntes del centro (p. ej. bombillas 3 Ω / 6 Ω con pila de 9 V en serie; dos de 6 Ω con 12 V en paralelo).
-- Incluye ejercicio resuelto + ejercicio propuesto al alumno (método socrático del Tutor).
-- No entrega soluciones de examen activo.
-
-### Extracto
-
-> En un circuito en serie… `Req = R1 + R2 + R3`… ejemplo 3 Ω y 6 Ω a 9 V → `I = 1 A`.  
-> En paralelo… `1/Req = 1/R1 + 1/R2`… dos bombillas de 6 Ω a 12 V → `Req = 3 Ω`, `Itotal = 4 A`.
-
-## 4. Exam Generator + Rubric (docente)
-
-- **thread_id:** `13aeba30-8177-476d-b371-3c61cf1de6cb`
-- **Status intermedio:** `awaiting_approval`
-- **Veredicto Rubric Agent:** `VEREDICTO: APROBADO`
-
-### Cumplimiento de rúbrica (según el agente)
-
-| Criterio | Resultado |
-|---|---|
-| Suma 10 puntos | Cumple |
-| ≥ 3 tipos de pregunta (teoría, numérico, esquema) | Cumple |
-| ≥ 40 % problemas numéricos | Cumple (4/10) |
-| Pregunta de seguridad eléctrica | Cumple (P6) |
-| Duración 55 min | Cumple |
-| Valores numéricos sencillos 3º ESO | Cumple |
-
-### Fuentes citadas por el Exam Generator
-
-- `tecnologia_3eso_2023_electricidad.txt`
-- `tecnologia_3eso_2024_electricidad.txt`
-- `tecnologia_3eso_rubrica_examenes.txt`
-
-### Estructura del examen generado
-
-1. Definición de corriente eléctrica (1,5)  
-2. Tabla magnitud / unidad / aparato (1,5)  
-3. Motor 10 Ω / 20 V — intensidad y potencia (2)  
-4. Esquema serie + fallo de bombilla (2)  
-5. Paralelo 4 Ω y 8 Ω a 12 V (2)  
-6. Elementos de protección / diferencial (1)  
-
-Incluye solucionario.
-
-## 5. Aprobación humana (`/api/v1/approve`)
-
-```json
-{ "thread_id": "13aeba30-8177-476d-b371-3c61cf1de6cb", "decision": "si" }
-```
-
-- **Status:** `completed`
-- **Efecto:** se entrega el examen definitivo; el orquestador registra feedback/histórico en memoria de largo plazo.
-
-## 6. Curriculum Agent (docente)
-
-- **thread_id:** `95fdbe4f-0e45-4790-aa61-3fd98d6e6a6b`
-- **Status:** `completed`
-- **Salida:** unidad de **12 sesiones** (2º trimestre), alineada a códigos C1–C6 del currículo.
-
-### Fuentes citadas
-
-- `tecnologia_3eso_curriculo.txt`
-- `tecnologia_3eso_electricidad.txt`
-- `tecnologia_3eso_circuitos.txt`
-
-### Mapa de sesiones (resumen)
-
-| Sesiones | Tema |
-|---|---|
-| 1–3 | Corriente, magnitudes, medición |
-| 4–6 | Ley de Ohm + evaluación parcial |
-| 7–9 | Serie, paralelo, mixtos |
-| 10–11 | Potencia/energía y seguridad |
-| 12 | Examen de unidad |
-
-## 7. Validación de directrices
-
-| Directriz ([arquitectura.md](arquitectura.md)) | Evidencia en esta corrida |
-|---|---|
-| RAG multi-índice | Ingesta 4 índices; citas por tipo de fuente |
-| Grounding / no responder “en general” | Ejemplos y valores del material del instituto |
-| Validación cruzada Exam → Rubric | Veredicto APROBADO antes de human-in-the-loop |
-| Human-in-the-loop | `awaiting_approval` → `approve` |
-| Tutor con salvaguardas | Explica + propone ejercicio; no resuelve examen activo |
-| Curriculum alineado al histórico | 12 sesiones con códigos C1–C6 del currículo |
-
-## 8. Cómo reproducir
+## Cómo reproducir
 
 ```bash
-# Con el contenedor arriba y OPENAI_API_KEY configurada
-python scripts/run_pipeline_api.py
-# o contra local:
-BASE_URL=http://localhost:8000 python scripts/run_pipeline_api.py
+python scripts/run_test_pipeline.py --write-doc
+# solo auth/CRUD:
+python scripts/run_test_pipeline.py --smoke
 ```
 
-Orden de llamadas: health → ingestar → chat alumno → chat examen → approve → chat currículo.
+Nota: el script histórico `scripts/run_pipeline_api.py` apunta a la API legado `/api/v1/*`. El camino actual es JWT (`/auth`, `/knowledge`, `/requests`).

@@ -18,7 +18,7 @@ from src.db.models import Chunk
 from src.db.session import SessionLocal
 from src.llm import active_embedding_model, get_embeddings
 from src.rag import kb_vectores
-from src.rag.rrf import fusion_rrf, ranking_bm25, tokenizar
+from src.rag.rrf import fusion_rrf, ranking_bm25, tokenizar  # tokenizar: BM25 score en buscar_con_score
 
 logger = logging.getLogger("orquestacion.rag")
 
@@ -90,10 +90,11 @@ class RetrieverHibridoMySQL:
         if self._own_session:
             self.db.close()
 
-    def _ranking_semantico(self, consulta: str, n: int) -> list[str]:
+    def _ranking_semantico_scored(self, consulta: str, n: int) -> list[tuple[str, float]]:
+        """Pares (chunk_uid, similitud coseno) ordenados de mayor a menor."""
         if self.backend == "chroma":
             try:
-                return kb_vectores.buscar(
+                return kb_vectores.buscar_con_distancia(
                     self.user_id, self.indice, self._embedder.embed_query(consulta), n
                 )
             except Exception as exc:  # noqa: BLE001 - queda el ranking BM25
@@ -107,7 +108,10 @@ class RetrieverHibridoMySQL:
             key=lambda x: x[1],
             reverse=True,
         )
-        return [cid for cid, _ in sims[:n]]
+        return sims[:n]
+
+    def _ranking_semantico(self, consulta: str, n: int) -> list[str]:
+        return [cid for cid, _ in self._ranking_semantico_scored(consulta, n)]
 
     def buscar(self, consulta: str, k: int = 4) -> list[dict]:
         if not self.chunks:
@@ -118,6 +122,32 @@ class RetrieverHibridoMySQL:
         ]
         por_id = {c["id"]: c for c in self.chunks}
         return [por_id[i] for i in fusion_rrf(rankings, k) if i in por_id]
+
+    def buscar_con_score(self, consulta: str, k: int = 4) -> list[tuple[dict, float]]:
+        """Top-k con puntuación de relevancia en [0, 1] (coseno; si no hay, BM25 normalizado)."""
+        if not self.chunks:
+            return []
+        por_id = {c["id"]: c for c in self.chunks}
+        sem = self._ranking_semantico_scored(consulta, k * 2)
+        sem_score = {cid: score for cid, score in sem}
+        ids_bm25 = ranking_bm25(self.bm25, [c["id"] for c in self.chunks], consulta, k * 2)
+        # BM25 crudo → [0, 1] relativo al mejor del lote (solo fallback léxico).
+        bm25_raw = self.bm25.get_scores(tokenizar(consulta)) if self.bm25 is not None else []
+        max_bm25 = float(max(bm25_raw)) if len(bm25_raw) else 0.0
+        bm25_score = {
+            cid: (float(bm25_raw[i]) / max_bm25 if max_bm25 > 0 else 0.0)
+            for i, cid in enumerate([c["id"] for c in self.chunks])
+            if cid in ids_bm25 or cid in sem_score
+        }
+        fusionados = fusion_rrf([ids_bm25, [cid for cid, _ in sem]], k)
+        out: list[tuple[dict, float]] = []
+        for cid in fusionados:
+            chunk = por_id.get(cid)
+            if chunk is None:
+                continue
+            score = max(sem_score.get(cid, 0.0), bm25_score.get(cid, 0.0))
+            out.append((chunk, score))
+        return out
 
 
 @lru_cache(maxsize=64)

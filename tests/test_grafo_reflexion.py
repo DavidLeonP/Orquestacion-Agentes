@@ -25,6 +25,7 @@ from src.agents.schemas import (
 from src.orchestrator import graph as grafo_mod
 from src.rag import context as rag_context
 from src.rag import tools as rag_tools
+from src.rag.cobertura import CoberturaKB, MENSAJE_FUERA_CONTEXTO
 
 PETICION = "Genera un examen de 2 preguntas sobre la ley de Ohm"
 
@@ -112,11 +113,30 @@ class Store:
         return f"PERFIL {alumno_id}"
 
 
+def _cobertura_ok(**kwargs) -> CoberturaKB:
+    base = dict(
+        suficiente=True,
+        score=0.9,
+        motivo="ok",
+        fuentes=["apuntes.txt"],
+        asignatura="Tecnología",
+        curso="3º ESO",
+        temas_sugeridos=["electricidad"],
+        resumen_para_prompt="[apuntes.txt] Ley de Ohm y circuitos en serie.",
+    )
+    base.update(kwargs)
+    return CoberturaKB(**base)
+
+
 @pytest.fixture
 def montar(monkeypatch):
     tokens = []
 
-    def _montar(falsos: Falsos, user_id: int | None = 7):
+    def _montar(
+        falsos: Falsos,
+        user_id: int | None = 7,
+        cobertura: CoberturaKB | None = None,
+    ):
         monkeypatch.setattr(grafo_mod, "get_structured_model", falsos.get_structured_model)
         monkeypatch.setattr(
             grafo_mod, "invocar_estructurado",
@@ -128,6 +148,8 @@ def montar(monkeypatch):
         monkeypatch.setattr(grafo_mod, "ejecutar_agente", falsos.ejecutar_agente)
         monkeypatch.setattr(grafo_mod, "estructurar_salida", falsos.estructurar_salida)
         monkeypatch.setattr(grafo_mod, "registrar_evento", lambda *a, **k: None)
+        cov = cobertura if cobertura is not None else _cobertura_ok()
+        monkeypatch.setattr(grafo_mod, "evaluar_cobertura", lambda *a, **k: cov)
 
         class Casos:
             def recordar(self, uid, peticion, k=2):
@@ -528,6 +550,43 @@ def test_criterios_y_modo_se_reinician_entre_peticiones(montar):
     v = grafo.get_state(CFG).values
     assert v["modo"] == "regenerar" and v["criterios"] == {}
     assert v["intentos"] == [] and v["lecciones"] == []
+
+
+def test_fuera_de_contexto_no_invoca_exam_generator(montar):
+    """Petición sin cobertura KB → nodo fuera_contexto, sin inventar examen."""
+    f = Falsos(examenes=[], veredictos=[], router="exam_generator")
+    cov = CoberturaKB(
+        suficiente=False,
+        score=0.05,
+        motivo="relevancia=0.05 < umbral=0.32; tema no respaldado por la KB",
+    )
+    grafo = montar(f, cobertura=cov)
+    final = grafo.invoke(
+        {
+            "peticion": (
+                "quiero que me des 2 preguntas complejas de la teoria de colores "
+                "que uso los artistas del renacimiento en europa"
+            ),
+            "rol_usuario": "docente",
+        },
+        CFG,
+    )
+    assert f.num_llamadas("exam_generator") == 0
+    assert f.llm("ConstraintsExamen") == []
+    assert final["agente_destino"] == "fuera_contexto"
+    assert MENSAJE_FUERA_CONTEXTO.split(":")[0] in final["respuesta_final"]
+    assert final.get("intentos") in ([], None) or final["intentos"] == []
+
+
+def test_constraints_prompt_anclado_a_material(montar):
+    f = Falsos(examenes=[_examen(1)], veredictos=[VeredictoValidacion(aprobado=True)])
+    grafo = montar(f)
+    grafo.invoke({"peticion": PETICION, "rol_usuario": "docente"}, CFG)
+    (prompt,) = f.llm("ConstraintsExamen")
+    assert "Material recuperado" in prompt
+    assert "Ley de Ohm" in prompt
+    assert "NO inventes temas ajenos" in prompt or "No inventes temas" in prompt
+    assert "Tecnología, 3º ESO, 6 preguntas" not in prompt
 
 
 def test_sin_user_id_no_carga_criterios(montar, monkeypatch):

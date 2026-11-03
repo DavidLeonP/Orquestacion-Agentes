@@ -2,8 +2,8 @@
 
 Mismo patrón que `orchestrator_runner.py`: crea la `SqlQuery`, la ejecuta en
 background con `app.stream(..., stream_mode="updates")`, persiste un evento
-por nodo visitado y nunca deja propagar excepciones fuera del BackgroundTask
-(la respuesta HTTP 202 ya se envió).
+por nodo visitado y soporta HITL de aclaración (`waiting_clarification` →
+`Command(resume=…)`).
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import uuid
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command
 from sqlalchemy.orm import Session
 
 from src.db.models import SqlQuery, SqlQueryEvent
@@ -20,14 +21,7 @@ from src.observability.trazas import TrazasSolicitud, registrar_evento
 from src.sql_agent.database import get_sql_database
 from src.sql_agent.graph import RECURSION_LIMIT, construir_grafo
 
-# Checkpointer de proceso: basta para una sola query por thread_id mientras
-# el proceso viva.
 _CHECKPOINTER = MemorySaver()
-# Un grafo compilado por cada (tenant, AGENT_DB_URI) distinto visto (las
-# tools del grafo cierran sobre la SQLDatabase, así que no se puede compartir
-# un solo grafo entre tenants ni entre BDs de negocio distintas). La clave
-# siempre incluye `tenant` — nunca solo el URI — para que un `agent_db_uri`
-# reutilizado o reapuntado no sirva por accidente el grafo de otro tenant.
 _APPS: dict[tuple[str, str], object] = {}
 
 
@@ -67,7 +61,6 @@ def _extraer_respuesta_final(messages: list) -> str | None:
 
 
 def _extraer_sql_query(messages: list) -> str | None:
-    """Última consulta db_query_tool ejecutada con éxito (para auditoría)."""
     ultimo_ok: str | None = None
     for i, m in enumerate(messages):
         if not (isinstance(m, AIMessage) and m.tool_calls):
@@ -90,7 +83,6 @@ def _extraer_sql_query(messages: list) -> str | None:
 
 
 def _sql_intentado(actualizacion: dict) -> str | None:
-    """Extrae el SQL que un nodo intentó ejecutar/corregir, para el evento de auditoría."""
     for m in actualizacion.get("messages", []):
         tool_calls = getattr(m, "tool_calls", None) or []
         for tc in tool_calls:
@@ -113,16 +105,6 @@ def crear_query(db: Session, user_id: int, pregunta: str) -> SqlQuery:
 
 
 def ejecutar_query(query_id: int, user_id: int, agent_db_uri: str | None = None) -> None:
-    """Ejecuta el grafo hasta completar.
-
-    `agent_db_uri` viaja solo como argumento de esta llamada en background:
-    no se persiste en la SqlQuery ni se incluye en ningún evento o mensaje
-    de error. `tenant` (= `user_id`) sí queda persistido en la SqlQuery desde
-    `crear_query`, porque identifica al docente dueño de la consulta.
-
-    Nunca propaga excepciones: BackgroundTasks de FastAPI las re-lanzaría y
-    la respuesta HTTP 202 ya se envió al cliente.
-    """
     tenant = str(user_id)
     db = SessionLocal()
     try:
@@ -137,6 +119,71 @@ def ejecutar_query(query_id: int, user_id: int, agent_db_uri: str | None = None)
         _mark_failed(query_id, str(exc))
 
 
+def _stream_hasta_fin_o_hitl(
+    db: Session,
+    q: SqlQuery,
+    stream,
+) -> bool:
+    """Consume el stream. True si se quedó en waiting_clarification."""
+    interrumpido = False
+    try:
+        for chunk in stream:
+            if "__interrupt__" in chunk:
+                interrupt_data = chunk["__interrupt__"][0].value
+                if not isinstance(interrupt_data, dict):
+                    interrupt_data = {"mensaje": str(interrupt_data)}
+                q.status = "waiting_clarification"
+                # La pregunta al docente viaja en respuesta_final mientras espera.
+                q.respuesta_final = (
+                    interrupt_data.get("pregunta_aclaracion")
+                    or interrupt_data.get("mensaje")
+                    or "Se necesita una aclaración."
+                )
+                db.add(
+                    SqlQueryEvent(
+                        sql_query_id=q.id,
+                        tipo="waiting_clarification",
+                        payload=interrupt_data,
+                    )
+                )
+                db.commit()
+                registrar_evento("waiting_clarification", **{
+                    k: interrupt_data.get(k)
+                    for k in ("pregunta_aclaracion", "motivos", "mensaje")
+                    if k in interrupt_data
+                })
+                interrumpido = True
+                break
+
+            for nodo, actualizacion in chunk.items():
+                if nodo.startswith("__") or not isinstance(actualizacion, dict):
+                    continue
+                payload = {
+                    "nodo": nodo,
+                    "mensajes_nuevos": len(actualizacion.get("messages", [])),
+                }
+                sql = _sql_intentado(actualizacion)
+                if sql:
+                    payload["sql_intentado"] = sql
+                if "veredicto" in actualizacion:
+                    payload["veredicto"] = actualizacion.get("veredicto")
+                if "lecciones" in actualizacion:
+                    payload["lecciones"] = actualizacion.get("lecciones")
+                registrar_evento("nodo_grafo", **payload)
+                db.add(SqlQueryEvent(sql_query_id=q.id, tipo="nodo_grafo", payload=payload))
+                db.commit()
+    except GeneratorExit:
+        return interrumpido
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001
+                pass
+    return interrumpido
+
+
 def _ejecutar_query_impl(query_id: int, tenant: str, agent_db_uri: str | None = None) -> None:
     db = SessionLocal()
     try:
@@ -149,32 +196,107 @@ def _ejecutar_query_impl(query_id: int, tenant: str, agent_db_uri: str | None = 
             "configurable": {"thread_id": q.thread_id},
             "recursion_limit": RECURSION_LIMIT,
         }
-        entrada = {"messages": [("user", q.pregunta)]}
+        entrada = {
+            "messages": [("user", q.pregunta)],
+            "peticion": q.pregunta,
+            "lecciones": [],
+            "clarificaciones": [],
+            "intentos_validacion": 0,
+        }
 
-        for chunk in app.stream(entrada, config=run_config, stream_mode="updates"):
-            for nodo, actualizacion in chunk.items():
-                if nodo.startswith("__") or not isinstance(actualizacion, dict):
-                    continue
-                payload = {
-                    "nodo": nodo,
-                    "mensajes_nuevos": len(actualizacion.get("messages", [])),
-                }
-                sql = _sql_intentado(actualizacion)
-                if sql:
-                    payload["sql_intentado"] = sql
-                registrar_evento("nodo_grafo", **payload)
-                db.add(SqlQueryEvent(sql_query_id=q.id, tipo="nodo_grafo", payload=payload))
-                db.commit()
+        stream = app.stream(entrada, config=run_config, stream_mode="updates")
+        if _stream_hasta_fin_o_hitl(db, q, stream):
+            return
 
         estado_final = app.get_state(run_config).values
         mensajes = estado_final.get("messages", [])
 
         q = db.get(SqlQuery, query_id)
         q.respuesta_final = _extraer_respuesta_final(mensajes)
-        q.sql_query = _extraer_sql_query(mensajes)
+        q.sql_query = _extraer_sql_query(mensajes) or estado_final.get("sql_final")
         q.status = "completed"
         db.add(SqlQueryEvent(sql_query_id=q.id, tipo="completed", payload={}))
         db.commit()
+    except GeneratorExit:
+        return
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        _mark_failed(query_id, str(exc))
+    finally:
+        db.close()
+
+
+def aclarar_query(
+    query_id: int,
+    user_id: int,
+    aclaracion: str,
+    agent_db_uri: str | None = None,
+) -> None:
+    """Reanuda el grafo tras `waiting_clarification` (BackgroundTask).
+
+    El router ya validó el estado y registró `aclaracion_recibida`. Aquí solo
+    se hace `Command(resume=…)`: el nodo `aclaracion_humana` archiva en Chroma.
+    """
+    tenant = str(user_id)
+    db = SessionLocal()
+    try:
+        q = (
+            db.query(SqlQuery)
+            .filter(SqlQuery.id == query_id, SqlQuery.user_id == user_id)
+            .first()
+        )
+        if q is None:
+            return
+        thread_id = q.thread_id
+        pregunta = q.pregunta
+        q.status = "running"
+        q.error = None
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        with TrazasSolicitud(str(query_id), rol="sql_agent", peticion=pregunta):
+            _reanudar_con_aclaracion(query_id, tenant, thread_id, aclaracion, agent_db_uri)
+    except Exception as exc:  # noqa: BLE001
+        _mark_failed(query_id, str(exc))
+
+
+def _reanudar_con_aclaracion(
+    query_id: int,
+    tenant: str,
+    thread_id: str,
+    aclaracion: str,
+    agent_db_uri: str | None,
+) -> None:
+    db = SessionLocal()
+    try:
+        q = db.get(SqlQuery, query_id)
+        if q is None:
+            return
+        app = _app(tenant, agent_db_uri)
+        run_config = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": RECURSION_LIMIT,
+        }
+        stream = app.stream(
+            Command(resume={"aclaracion": aclaracion}),
+            config=run_config,
+            stream_mode="updates",
+        )
+        if _stream_hasta_fin_o_hitl(db, q, stream):
+            return
+
+        estado_final = app.get_state(run_config).values
+        mensajes = estado_final.get("messages", [])
+        q = db.get(SqlQuery, query_id)
+        q.respuesta_final = _extraer_respuesta_final(mensajes)
+        q.sql_query = _extraer_sql_query(mensajes) or estado_final.get("sql_final")
+        q.status = "completed"
+        db.add(SqlQueryEvent(sql_query_id=q.id, tipo="completed", payload={}))
+        db.commit()
+    except GeneratorExit:
+        return
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         _mark_failed(query_id, str(exc))

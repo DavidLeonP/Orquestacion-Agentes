@@ -19,17 +19,19 @@ NAV_DESCRIPTIONS: dict[str, str] = {
     "pages/2_Asistente.py": "Orquestador: Curriculum, Exam, Rúbrica y Tutor.",
     "pages/3_Historial.py": "Revisa peticiones anteriores y su resultado.",
     "pages/4_Aprobaciones.py": "Aprueba o rechaza borradores de examen.",
-    "pages/5_Consultas_SQL.py": "Agente SQL: preguntas NL a la BD académica (docentes).",
+    "pages/5_Consultas_SQL.py": "Agente SQL + reflexión/HITL sobre la BD académica (docentes).",
 }
 
 SQL_QUERY_STATUS_LABELS: dict[str, str] = {
     "running": "En proceso",
+    "waiting_clarification": "Pendiente de aclaración",
     "completed": "Completada",
     "failed": "Falló",
 }
 
 SQL_QUERY_STATUS_EMOJI: dict[str, str] = {
     "running": "🔄",
+    "waiting_clarification": "❓",
     "completed": "✅",
     "failed": "❌",
 }

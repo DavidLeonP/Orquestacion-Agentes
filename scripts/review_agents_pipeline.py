@@ -209,6 +209,7 @@ def _run_agent_interaction(
                 "costo de operación frente a un costo de producción y dame un ejemplo."
             ),
             "expect_agent": "tutor",
+            "guardrail": False,
         },
         {
             "name": "docente_curriculum_finanzas",
@@ -218,6 +219,17 @@ def _run_agent_interaction(
                 "Estratégicas usando la guía didáctica y la clase grabada indexada."
             ),
             "expect_agent": "curriculum",
+            "guardrail": False,
+        },
+        {
+            "name": "docente_examen_fuera_contexto",
+            "rol": "docente",
+            "peticion": (
+                "quiero que me des 2 preguntas complejas de la teoria de colores "
+                "que uso los artistas del renacimiento en europa"
+            ),
+            "expect_agent": "fuera_contexto",
+            "guardrail": True,
         },
     ]
 
@@ -228,8 +240,10 @@ def _run_agent_interaction(
             "rol": sc["rol"],
             "nodos": [],
             "agente_destino": None,
+            "cobertura_kb": None,
             "respuesta_preview": None,
             "error": None,
+            "guardrail": sc.get("guardrail", False),
         }
         try:
             estado: dict[str, Any] = {}
@@ -252,6 +266,8 @@ def _run_agent_interaction(
                     if isinstance(upd, dict):
                         if "agente_destino" in upd:
                             trace["agente_destino"] = upd["agente_destino"]
+                        if "cobertura_kb" in upd:
+                            trace["cobertura_kb"] = upd["cobertura_kb"]
                         if "respuesta_final" in upd:
                             estado["respuesta_final"] = upd["respuesta_final"]
                         if "borrador" in upd and "respuesta_final" not in estado:
@@ -259,16 +275,31 @@ def _run_agent_interaction(
             final = estado.get("respuesta_final") or estado.get("borrador") or ""
             trace["respuesta_preview"] = final[:600]
             trace["elapsed_sec"] = round(time.time() - t0, 2)
-            ok_route = (
-                sc["rol"] != "alumno"
-                or trace.get("agente_destino") == "tutor"
-                or "tutor" in trace["nodos"]
-            )
-            ok_content = len(final) > 40
+            destino = trace.get("agente_destino")
+            if sc.get("guardrail"):
+                ok_route = destino == "fuera_contexto" or "fuera_contexto" in trace["nodos"]
+                low = final.lower()
+                ok_content = any(
+                    x in low
+                    for x in (
+                        "base documental",
+                        "fuera de contexto",
+                        "no hay evidencia",
+                        "no puedo atender",
+                        "sesión",
+                    )
+                )
+            else:
+                ok_route = (
+                    sc["rol"] != "alumno"
+                    or destino == "tutor"
+                    or "tutor" in trace["nodos"]
+                )
+                ok_content = len(final) > 40
             report.add(
                 f"agent:{sc['name']}",
                 ok_route and ok_content,
-                f"nodos={trace['nodos']} destino={trace.get('agente_destino')} t={trace['elapsed_sec']}s",
+                f"nodos={trace['nodos']} destino={destino} t={trace['elapsed_sec']}s",
             )
         except Exception as exc:  # noqa: BLE001
             trace["error"] = str(exc)
@@ -294,12 +325,17 @@ def _render_markdown(report: ReviewReport) -> str:
 
     lines += [
         "",
-        "## 2. Flujo de agentes (implementación)",
+        "> Instantánea generada por `scripts/review_agents_pipeline.py --write-doc`. "
+        "Incluye Guardrails de cobertura KB (`fuera_contexto`). "
+        "Diseño: [arquitectura.md](arquitectura.md).",
+        "",
+        "## 2. Flujo de agentes (implementación + Guardrails)",
         "",
         "```mermaid",
         "flowchart TB",
         "  REQ[Peticion_API] --> ORQ[Orquestador_LangGraph]",
         "  ORQ --> R[router]",
+        "  R -->|cobertura_KB_baja| FC[fuera_contexto]",
         "  R -->|alumno_regla| T[Tutor_ReAct]",
         "  R -->|docente_regla_o_LLM| C[Curriculum_ReAct]",
         "  R -->|docente_regla_o_LLM| E[ExamGenerator_ReAct]",
@@ -311,13 +347,17 @@ def _render_markdown(report: ReviewReport) -> str:
         "  T --> F[finalizar]",
         "  C --> F",
         "  Ru --> F",
-        "  H --> END([respuesta_final])",
+        "  FC --> END([respuesta_final])",
+        "  H --> END",
         "  F --> END",
         "  subgraph RAG[KB_por_usuario]",
+        "    Cov[evaluar_cobertura]",
         "    Tools[buscar_apuntes_examenes_rubricas_curriculo]",
-        "    Hyb[BM25_plus_cosine_RRF]",
+        "    Hyb[BM25_plus_Chroma_RRF]",
         "    MySQL[(chunks_embeddings)]",
         "  end",
+        "  R --> Cov",
+        "  Cov --> Hyb",
         "  T --> Tools",
         "  C --> Tools",
         "  E --> Tools",
@@ -354,6 +394,10 @@ def _render_markdown(report: ReviewReport) -> str:
         lines.append(f"### `{tr.get('scenario')}`")
         lines.append(f"- Nodos: `{tr.get('nodos')}`")
         lines.append(f"- Destino: `{tr.get('agente_destino')}`")
+        if tr.get("guardrail"):
+            lines.append("- Guardrail: petición fuera de contexto esperada")
+        if tr.get("cobertura_kb"):
+            lines.append(f"- Cobertura KB: `{tr.get('cobertura_kb')}`")
         if tr.get("error"):
             lines.append(f"- Error: {tr['error']}")
         prev = (tr.get("respuesta_preview") or "").replace("\n", " ")
@@ -365,9 +409,12 @@ def _render_markdown(report: ReviewReport) -> str:
         "## 5. Cómo reproducir",
         "",
         "```bash",
-        "python scripts/transcribe_and_index_module.py",
+        "python scripts/transcribe_and_index_module.py  # si el módulo aún no está indexado",
         "python scripts/review_agents_pipeline.py --write-doc",
         "```",
+        "",
+        "El escenario `docente_examen_fuera_contexto` comprueba que Guardrails "
+        "bloquea temas ajenos a la KB (p. ej. Renacimiento) sin inventar un examen.",
         "",
     ]
     return "\n".join(lines)

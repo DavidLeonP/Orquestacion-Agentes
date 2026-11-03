@@ -106,6 +106,8 @@ restart_container() {
       --network ${DOCKER_NETWORK} \
       -p 8000:8000 \
       --env-file ${DEPLOY_PATH}/.env \
+      -e AGENT_DB_URI=sqlite:////app/data/negocio_academico.db \
+      -e SQL_AGENT_KG_PATH=/app/data/sintetica_academica/knowledge_graph.json \
       -v ${DEPLOY_PATH}/data:/app/data:ro \
       -v asistente-ia_asistente_storage:/app/storage \
       ${DOCKER_IMAGE} && \
@@ -120,9 +122,13 @@ restart_container() {
         --server.address=0.0.0.0 \
         --server.headless=true \
         --browser.gatherUsageStats=false && \
-    sleep 10 && \
+    sleep 12 && \
     echo -n 'API: ' && curl -sS http://127.0.0.1:8000/health && echo && \
-    echo -n 'UI:  ' && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8501/ && echo"
+    echo -n 'UI:  ' && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8501/ && echo && \
+    echo '==> Sembrando aclaraciones SQL (Chroma) para docentes...' && \
+    (docker exec ${CONTAINER_NAME} python scripts/seed_clarificaciones_sql_docentes.py --also-tenant pipeline-sintetica \
+      || echo 'WARN: seed clarificaciones fallo') \
+  "
 }
 
 cmd="${1:-}"

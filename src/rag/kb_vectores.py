@@ -123,10 +123,33 @@ def estado(user_id: int, indice: str | None = None) -> dict:
 
 def buscar(user_id: int, indice: str, vector: list[float], k: int) -> list[str]:
     """chunk_uid de los k vecinos más cercanos, en orden."""
+    return [uid for uid, _ in buscar_con_distancia(user_id, indice, vector, k)]
+
+
+def buscar_con_distancia(
+    user_id: int, indice: str, vector: list[float], k: int
+) -> list[tuple[str, float]]:
+    """Pares (chunk_uid, similitud coseno) de los k vecinos, en orden.
+
+    Chroma en espacio cosine devuelve distancia = 1 - similitud; aquí se
+    normaliza a similitud en [0, 1] (mayor = más parecido).
+    """
     res = _kb().query(
         query_embeddings=[vector],
         n_results=k,
         where=filtro(user_id=user_id, indice=indice),
-        include=["metadatas"],
+        include=["metadatas", "distances"],
     )
-    return [m["chunk_uid"] for m in res["metadatas"][0]]
+    metas = (res.get("metadatas") or [[]])[0] or []
+    dists = (res.get("distances") or [[]])[0] or []
+    out: list[tuple[str, float]] = []
+    for meta, dist in zip(metas, dists):
+        uid = (meta or {}).get("chunk_uid")
+        if not uid:
+            continue
+        try:
+            sim = max(0.0, min(1.0, 1.0 - float(dist)))
+        except (TypeError, ValueError):
+            sim = 0.0
+        out.append((uid, sim))
+    return out

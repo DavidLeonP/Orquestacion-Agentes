@@ -12,10 +12,12 @@ consultar en lenguaje natural la base de datos académica del instituto
 
 Documentación:
 
-- [docs/arquitectura.md](docs/arquitectura.md) — directrices de orquestación, conocimiento y aprendizaje
-- [docs/implementacion.md](docs/implementacion.md) — API JWT, Streamlit, Docker, VPS
-- [docs/diagramas-secuencia.md](docs/diagramas-secuencia.md) — flujos de secuencia
+- [docs/arquitectura.md](docs/arquitectura.md) — orquestación, RAG, Reflexion, Guardrails
+- [docs/implementacion.md](docs/implementacion.md) — API JWT, Streamlit, Docker, VPS + diagramas
+- [docs/diagramas-secuencia.md](docs/diagramas-secuencia.md) — auth, ingest, HITL, SQL, Guardrails
 - [docs/c4/](docs/c4/) — modelo C4
+- [docs/resultados-pipeline.md](docs/resultados-pipeline.md) — pipeline JWT E2E (última corrida)
+- [docs/revision-implementacion-agentes.md](docs/revision-implementacion-agentes.md) — revisión agentes + fuera_contexto
 - [docs/README.md](docs/README.md) — índice de docs
 
 ## Estructura
@@ -74,6 +76,20 @@ docker compose up -d --build
 curl http://localhost:8000/health   # API JWT
 open http://localhost:8501          # UI Streamlit
 ```
+
+### Pipelines E2E (documentados)
+
+```bash
+python scripts/run_test_pipeline.py --write-doc       # JWT: ingest + tutor + Guardrails
+python scripts/review_agents_pipeline.py --write-doc  # módulo indexado + agentes + fuera_contexto
+python scripts/generar_sintetica_academica.py && python scripts/migrar_sintetica_academica.py
+python scripts/run_sql_agent_pipeline.py --write-doc  # SQL Agent + KG esquema + top-10/paralelo
+```
+
+Salida en [docs/resultados-pipeline.md](docs/resultados-pipeline.md),
+[docs/revision-implementacion-agentes.md](docs/revision-implementacion-agentes.md) y
+[docs/resultados-sql-agent-pipeline.md](docs/resultados-sql-agent-pipeline.md).
+BD sintética: [data/sintetica_academica/](data/sintetica_academica/).
 
 ### Evaluación y aprendizaje
 

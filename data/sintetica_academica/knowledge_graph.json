@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "nombre": "Grafo de conocimiento — BD sintética académica Ecuador",
+    "universidad": "Universidad Andina Demo (Quito)",
+    "escala_notas": "0-10",
+    "proposito": "Contexto semántico para el SQL Agent: tablas, relaciones y preguntas válidas. Evita alucinar tablas/columnas inexistentes."
+  },
+  "entidades": [
+    {"id": "facultades", "tipo": "tabla", "descripcion": "Facultades académicas (p. ej. Ciencias, Ingeniería, Administración).", "columnas_clave": ["id", "codigo", "nombre"]},
+    {"id": "carreras", "tipo": "tabla", "descripcion": "Carreras de grado vinculadas a una facultad.", "columnas_clave": ["id", "facultad_id", "codigo", "nombre"]},
+    {"id": "periodos", "tipo": "tabla", "descripcion": "Años lectivos (6 periodos). codigo tipo '2019-2020'.", "columnas_clave": ["id", "codigo", "anio_inicio", "anio_fin"]},
+    {"id": "paralelos", "tipo": "tabla", "descripcion": "Secciones A, B, C de una oferta.", "columnas_clave": ["id", "codigo"]},
+    {"id": "materias", "tipo": "tabla", "descripcion": "Catálogo de asignaturas universitarias con créditos.", "columnas_clave": ["id", "codigo", "nombre", "creditos", "carrera_id"]},
+    {"id": "profesores", "tipo": "tabla", "descripcion": "Docentes de la universidad; pertenecen a una facultad.", "columnas_clave": ["id", "codigo", "nombre", "email", "facultad_id"]},
+    {"id": "estudiantes", "tipo": "tabla", "descripcion": "Alumnos sintéticos (500). paralelo_ingreso_id es su sección de entrada.", "columnas_clave": ["id", "codigo", "nombre", "carrera_id", "paralelo_ingreso_id", "anio_ingreso"]},
+    {"id": "ofertas", "tipo": "tabla", "descripcion": "Instancia de una materia en un periodo, paralelo y profesor.", "columnas_clave": ["id", "periodo_id", "materia_id", "profesor_id", "paralelo_id"]},
+    {"id": "matriculas", "tipo": "tabla", "descripcion": "Inscripción de un estudiante en una oferta.", "columnas_clave": ["id", "estudiante_id", "oferta_id", "estado"]},
+    {"id": "calificaciones", "tipo": "tabla", "descripcion": "Nota 0-10 de una matrícula (convocatoria ordinaria por defecto).", "columnas_clave": ["id", "matricula_id", "nota", "convocatoria"]},
+    {"id": "promedios_periodo", "tipo": "tabla", "descripcion": "Resumen por estudiante y periodo: promedio, materia de afinidad (mejor nota) y número de materias.", "columnas_clave": ["id", "estudiante_id", "periodo_id", "promedio", "materia_afinidad_id", "num_materias"]}
+  ],
+  "relaciones": [
+    {"desde": "carreras", "hacia": "facultades", "via": "carreras.facultad_id = facultades.id", "cardinalidad": "N:1"},
+    {"desde": "materias", "hacia": "carreras", "via": "materias.carrera_id = carreras.id", "cardinalidad": "N:1"},
+    {"desde": "profesores", "hacia": "facultades", "via": "profesores.facultad_id = facultades.id", "cardinalidad": "N:1"},
+    {"desde": "estudiantes", "hacia": "carreras", "via": "estudiantes.carrera_id = carreras.id", "cardinalidad": "N:1"},
+    {"desde": "estudiantes", "hacia": "paralelos", "via": "estudiantes.paralelo_ingreso_id = paralelos.id", "cardinalidad": "N:1"},
+    {"desde": "ofertas", "hacia": "periodos", "via": "ofertas.periodo_id = periodos.id", "cardinalidad": "N:1"},
+    {"desde": "ofertas", "hacia": "materias", "via": "ofertas.materia_id = materias.id", "cardinalidad": "N:1"},
+    {"desde": "ofertas", "hacia": "profesores", "via": "ofertas.profesor_id = profesores.id", "cardinalidad": "N:1"},
+    {"desde": "ofertas", "hacia": "paralelos", "via": "ofertas.paralelo_id = paralelos.id", "cardinalidad": "N:1"},
+    {"desde": "matriculas", "hacia": "estudiantes", "via": "matriculas.estudiante_id = estudiantes.id", "cardinalidad": "N:1"},
+    {"desde": "matriculas", "hacia": "ofertas", "via": "matriculas.oferta_id = ofertas.id", "cardinalidad": "N:1"},
+    {"desde": "calificaciones", "hacia": "matriculas", "via": "calificaciones.matricula_id = matriculas.id", "cardinalidad": "N:1"},
+    {"desde": "promedios_periodo", "hacia": "estudiantes", "via": "promedios_periodo.estudiante_id = estudiantes.id", "cardinalidad": "N:1"},
+    {"desde": "promedios_periodo", "hacia": "periodos", "via": "promedios_periodo.periodo_id = periodos.id", "cardinalidad": "N:1"},
+    {"desde": "promedios_periodo", "hacia": "materias", "via": "promedios_periodo.materia_afinidad_id = materias.id", "cardinalidad": "N:1"}
+  ],
+  "reglas_consulta": [
+    "Usa SOLO las tablas y columnas listadas en este grafo / schema. No inventes tablas como 'cursos', 'alumnos' o 'asignaturas' (esas eran del demo ESO antiguo).",
+    "Notas en calificaciones.nota (0-10). Para rankings usa promedios_periodo.promedio.",
+    "Paralelo de una oferta: JOIN ofertas → paralelos. El paralelo de ingreso del estudiante está en estudiantes.paralelo_ingreso_id.",
+    "Periodo lectivo: periodos.codigo (ej. '2023-2024'), no inventes columnas 'año' sueltas.",
+    "«Año pasado» / «último periodo» = periodo con MAX(anio_fin) en periodos; filtrar matrículas vía matriculas→ofertas→periodos. NO uses estudiantes.anio_ingreso salvo que pregunten por cohorte de ingreso.",
+    "Afinidad académica: promedios_periodo.materia_afinidad_id (materia con mejor nota ese periodo).",
+    "Limita resultados con LIMIT salvo que el usuario pida otro N (p. ej. top 10 → LIMIT 10).",
+    "Si la pregunta no se puede responder con estas tablas, dilo explícitamente."
+  ],
+  "preguntas_ejemplo": [
+    {
+      "id": "top10_periodo",
+      "pregunta": "¿Cuáles son los 10 estudiantes con mejor promedio en el periodo 2023-2024?",
+      "tablas": ["promedios_periodo", "estudiantes", "periodos"],
+      "expectativa": "JOIN + ORDER BY promedio DESC LIMIT 10"
+    },
+    {
+      "id": "promedio_paralelo",
+      "pregunta": "¿Cuál es el promedio de notas del paralelo B en Cálculo I?",
+      "tablas": ["calificaciones", "matriculas", "ofertas", "paralelos", "materias"],
+      "expectativa": "AVG(nota) filtrando paralelo B y materia"
+    },
+    {
+      "id": "afinidad",
+      "pregunta": "¿Qué materia de afinidad tiene el estudiante con código EST-0001 en 2022-2023?",
+      "tablas": ["promedios_periodo", "estudiantes", "periodos", "materias"],
+      "expectativa": "materia_afinidad_id → materias.nombre"
+    },
+    {
+      "id": "carga_docente",
+      "pregunta": "¿Qué profesores tienen más ofertas en el periodo 2024-2025?",
+      "tablas": ["ofertas", "profesores", "periodos"],
+      "expectativa": "COUNT(*) GROUP BY profesor"
+    },
+    {
+      "id": "fuera_esquema",
+      "pregunta": "¿Cuántos buses hay en el campus?",
+      "tablas": [],
+      "expectativa": "Declarar que no hay evidencia en el esquema"
+    }
+  ]
+}

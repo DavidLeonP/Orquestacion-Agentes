@@ -307,7 +307,7 @@ sequenceDiagram
     API-->>U2: solo docs propios
 ```
 
-## 8. Interacción de agentes (router → tools → RAG)
+## 8. Interacción de agentes (router → Guardrails → tools → RAG)
 
 ```mermaid
 sequenceDiagram
@@ -316,7 +316,9 @@ sequenceDiagram
     participant API as FastAPI
     participant Orq as Orquestador
     participant R as router
+    participant Cov as evaluar_cobertura
     participant Ag as Agente_ReAct
+    participant MW as GuardrailMiddleware
     participant T as Tools_RAG
     participant Ret as Retriever_hibrido
     participant DB as MySQL
@@ -324,7 +326,7 @@ sequenceDiagram
 
     C->>API: POST /requests JWT
     API->>Orq: background stream
-    Orq->>R: clasificar
+    Orq->>R: clasificar destino
     alt rol alumno
         R-->>Orq: agente_destino=tutor regla
     else rol docente y una regla coincide (verbo + objeto)
@@ -334,26 +336,55 @@ sequenceDiagram
         LLM-->>R: curriculum exam_generator rubric tutor
         R-->>Orq: agente_destino
     end
-    Orq->>Ag: ejecutar_agente peticion
-    loop ReAct hasta respuesta o max iter
-        Ag->>LLM: thought / action
-        LLM-->>Ag: tool_call o Final Answer
-        opt tool RAG
-            Ag->>T: buscar_apuntes u otras
-            T->>Ret: query + user_id ContextVar
-            Ret->>DB: BM25 + Chroma HNSW (coseno MySQL si falla)
-            Ret-->>T: top-k con fuentes
-            T-->>Ag: evidencia (se anota para el verificador)
+    R->>Cov: consulta + indices del agente
+    Cov->>Ret: coseno Chroma/MySQL + solape lexico
+    alt cobertura insuficiente
+        R-->>Orq: fuera_contexto
+        Orq-->>API: respuesta_final sin inventar
+    else cobertura OK
+        Orq->>Ag: ejecutar_agente peticion
+        Ag->>MW: before_agent rechequeo KB
+        loop ReAct hasta respuesta o max iter
+            Ag->>LLM: thought / action
+            LLM-->>Ag: tool_call o Final Answer
+            opt tool RAG
+                Ag->>T: buscar_apuntes u otras
+                T->>Ret: query + user_id ContextVar
+                Ret->>DB: BM25 + Chroma HNSW
+                Ret-->>T: top-k con fuentes
+                T-->>Ag: evidencia
+            end
+            opt la tool falla
+                T-->>Ag: ToolMessage de error middleware
+            end
         end
-        opt la tool falla
-            T-->>Ag: ToolMessage de error (middleware), el agente sigue
+        Ag->>MW: after_agent exige tools + citas
+        opt exam_generator
+            Orq->>Orq: validar + Reflexion (diagrama 4)
+            Orq->>Orq: interrupt HITL con el mejor intento
         end
+        Orq-->>API: respuesta_final o waiting_approval
     end
-    opt exam_generator
-        Orq->>Orq: validar + Reflexion (diagrama 4)
-        Orq->>Orq: interrupt HITL con el mejor intento
-    end
-    Orq-->>API: respuesta_final o waiting_approval
+```
+
+## 8b. Guardrails: petición fuera de contexto
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as Docente
+    participant API as FastAPI
+    participant R as router
+    participant Cov as cobertura_KB
+    participant FC as fuera_contexto
+
+    D->>API: POST /requests "2 preguntas teoria de colores Renacimiento"
+    API->>R: destino exam_generator candidato
+    R->>Cov: indices apuntes/examenes/rubricas
+    Cov-->>R: suficiente=false sem≈0.36 lex≈0.14
+    R->>FC: agente_destino fuera_contexto
+    FC-->>API: mensaje de rechazo (sin examen inventado)
+    API-->>D: status completed + respuesta_final
 ```
 
 ## Leyenda de estados de `requests`

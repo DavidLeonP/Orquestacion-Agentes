@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphBubbleUp, GraphRecursionError
 from pydantic import BaseModel
 
+from src.agents.guardrails import middleware_guardrails
 from src.agents.schemas import safe_parse
 from src.config import MAX_ITERACIONES_REACT
 from src.llm import get_chat_model, get_structured_model
@@ -21,15 +22,20 @@ from src.observability.trazas import registrar_evento
 T = TypeVar("T", bound=BaseModel)
 
 DIRECTRIZ_GROUNDING = (
-    "REGLAS DE GROUNDING (obligatorias):\n"
-    "1. NO respondas 'en general': apóyate SIEMPRE en la base documental del "
-    "instituto usando tus herramientas de búsqueda antes de generar contenido.\n"
+    "REGLAS DE GROUNDING (obligatorias — Guardrails de sesión):\n"
+    "1. NO respondas 'en general' ni con conocimiento externo: apóyate "
+    "SIEMPRE en la base documental vectorial del usuario en sesión, usando "
+    "tus herramientas de búsqueda ANTES de generar contenido.\n"
     "2. Cita las fuentes consultadas al final de tu respuesta en una sección "
     "'Fuentes consultadas', usando el nombre de archivo que aparece en "
-    "[fuente: ...].\n"
-    "3. Si la base documental no contiene evidencia suficiente, decláralo "
-    "explícitamente en lugar de inventar.\n"
-    "4. Responde siempre en español."
+    "[fuente: ...]. Solo cita archivos que hayas obtenido con las tools.\n"
+    "3. Si la base documental no contiene evidencia suficiente para el tema "
+    "pedido (p. ej. la consulta habla de algo que no aparece en apuntes/"
+    "exámenes/rúbricas/currículo cargados), decláralo explícitamente y NO "
+    "inventes ni completes con cultura general.\n"
+    "4. No cambies de asignatura, curso ni unidad: permanece en el contexto "
+    "de la documentación recuperada en esta sesión.\n"
+    "5. Responde siempre en español."
 )
 
 
@@ -59,7 +65,7 @@ def crear_agente(nombre: str, prompt: str, tools: list, model: str | None = None
         get_chat_model(temperature=0, model=model),
         tools,
         system_prompt=f"{prompt}\n\n{DIRECTRIZ_GROUNDING}",
-        middleware=[error_como_observacion],
+        middleware=[*middleware_guardrails(nombre), error_como_observacion],
         name=nombre,
     )
 
@@ -76,9 +82,10 @@ def ejecutar_agente(agente, peticion: str, nombre: str = "agente") -> str:
     try:
         resultado = agente.invoke(
             {"messages": [HumanMessage(content=peticion)]},
-            # 2 super-steps (model + tools) por iteración + respuesta final y arranque
-            # de create_agent: +3 permite exactamente MAX iteraciones (tests/test_agentes_base.py)
-            config={"recursion_limit": 2 * MAX_ITERACIONES_REACT + 3},
+            # Guardrails (before/after agent + PII before/after model) suman nodos
+            # por iteración además de model+tools. 4*MAX+8 cubre MAX tool-loops
+            # reales sin cortar antes (tests/test_agentes_base.py).
+            config={"recursion_limit": 4 * MAX_ITERACIONES_REACT + 8},
         )
     except GraphRecursionError:
         registrar_evento(

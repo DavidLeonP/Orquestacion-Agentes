@@ -7,6 +7,7 @@ Un único cliente + lock evita esa condición de carrera.
 Colecciones con vectores propios (los calcula el model registry, no Chroma):
 - `kb_<modelo>`: chunks de la KB de todos los usuarios, filtrados por `user_id`.
 - `casos_<modelo>`: exámenes aprobados por el docente (memoria de casos).
+- `clarificaciones_sql_<modelo>`: aclaraciones HITL / semillas del SQL Agent.
 Una colección por modelo de embeddings evita mezclar dimensiones al cambiar de perfil.
 """
 
